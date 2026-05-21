@@ -1,0 +1,40 @@
+# --- CMake / build outputs ----------------------------------------------------
+build/
+build-*/
+out/
+cmake-build-*/
+
+# --- IDE files ----------------------------------------------------------------
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.sln
+*.vcxproj*
+*.xcodeproj/
+*.xcworkspace/
+
+# --- macOS / Windows junk -----------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- JUCE generated -----------------------------------------------------------
+JuceLibraryCode/
+*.juce_user/
+
+# --- FetchContent populated dependencies (kept inside build/) -----------------
+_deps/
+
+# --- Misc ---------------------------------------------------------------------
+*.log
+*.tmp
+
+# --- Vendored third-party dependencies ----------------------------------------
+# CMakeLists falls back to FetchContent (JUCE 8.0.4, Signalsmith Stretch) when
+# external/ is missing, so contributors get the right versions automatically.
+external/
+
+# --- Per-machine tooling config -----------------------------------------------
+.claude/

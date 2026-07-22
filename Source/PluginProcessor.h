@@ -20,6 +20,7 @@
 #include "PitchShifter.h"
 #include "ScaleQuantizer.h"
 #include "VocalFx.h"
+#include "EffectChain.h"
 
 #include <array>
 #include <atomic>
@@ -89,6 +90,10 @@ public:
     static constexpr const char* PID_BEND_RANGE  = "bendRange";
     static constexpr const char* PID_VOLUME      = "volumeDb";
 
+    /** Effect Wheel chain (63C-7): per-slot type + Amount parameter IDs. */
+    static juce::String fxTypeParamId (int slot)   { return "fxType"   + juce::String (slot + 1); }
+    static juce::String fxAmountParamId (int slot) { return "fxAmount" + juce::String (slot + 1); }
+
 private:
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
@@ -98,6 +103,13 @@ private:
     VocalFx::SubVocoder      subVocoder;
     VocalFx::DeEsser         deEsser;
     VocalFx::PinkNoiseSource pinkNoise;
+
+    VocalFx::EffectChain effectChain;
+
+    // Cached raw-value pointers for the chain's 12 params (avoids per-block
+    // String construction on the audio thread).
+    std::array<std::atomic<float>*, VocalFx::EffectChain::kNumSlots> fxTypeParams   {};
+    std::array<std::atomic<float>*, VocalFx::EffectChain::kNumSlots> fxAmountParams {};
 
     // Per-sample mono-summed dry input — modulator for the sub vocoder.
     std::vector<float> monoInputScratch;

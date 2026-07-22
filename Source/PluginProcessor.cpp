@@ -58,6 +58,12 @@ PitchCorrectorAudioProcessor::PitchCorrectorAudioProcessor()
 
     activeMidiNotes.reserve (32);
 
+    for (int s = 0; s < VocalFx::EffectChain::kNumSlots; ++s)
+    {
+        fxTypeParams  [(size_t) s] = apvts.getRawParameterValue (fxTypeParamId (s));
+        fxAmountParams[(size_t) s] = apvts.getRawParameterValue (fxAmountParamId (s));
+    }
+
 }
 
 
@@ -224,6 +230,25 @@ PitchCorrectorAudioProcessor::createParameterLayout()
 
 
 
+    // Effect Wheel chain: per-slot effect choice + Amount macro. Choice item
+    // order must match VocalFx::EffectType (append-only — see EffectChain.h).
+    juce::StringArray fxNames;
+    for (int t = 0; t < (int) VocalFx::EffectType::NumTypes; ++t)
+        fxNames.add (VocalFx::effectTypeName ((VocalFx::EffectType) t));
+
+    for (int s = 0; s < VocalFx::EffectChain::kNumSlots; ++s)
+    {
+        params.push_back (std::make_unique<APC> (juce::ParameterID { fxTypeParamId (s), 1 },
+                                                 "FX Slot " + juce::String (s + 1),
+                                                 fxNames, 0));
+
+        params.push_back (std::make_unique<APF> (juce::ParameterID { fxAmountParamId (s), 1 },
+                                                 "FX Slot " + juce::String (s + 1) + " Amount",
+                                                 Range (0.0f, 1.0f, 0.01f), 0.5f, roboticAttrs));
+    }
+
+
+
     return { params.begin(), params.end() };
 
 }
@@ -259,6 +284,8 @@ void PitchCorrectorAudioProcessor::prepareToPlay (double sampleRate, int samples
     subVocoder.prepare (sampleRate);
     deEsser   .prepare (sampleRate, ch);
     pinkNoise .prepare (sampleRate);
+
+    effectChain.prepare (sampleRate, samplesPerBlock, ch);
 
     // Dry-input mono mix (sub vocoder modulator) + sibilance presence signal.
     monoInputScratch.assign ((size_t) juce::jmax (samplesPerBlock, 1), 0.0f);
@@ -312,6 +339,7 @@ void PitchCorrectorAudioProcessor::releaseResources()
     subVocoder.reset();
     deEsser   .reset();
     pinkNoise .reset();
+    effectChain.reset();
 
 }
 
@@ -995,6 +1023,15 @@ void PitchCorrectorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     const float pinkMix = juce::jmap (robotic, 0.0f, 1.0f, 0.01f, 0.045f);
     pinkNoise.setTargetMix (pinkMix);
     pinkNoise.addTo (buffer, sibilanceScratch.data());
+
+    // === Effect Wheel chain: ordered slot effects on the corrected voice ===
+    for (int s = 0; s < VocalFx::EffectChain::kNumSlots; ++s)
+    {
+        effectChain.setSlotEffect (s, VocalFx::EffectChain::clampType (
+            (VocalFx::EffectType) juce::roundToInt (fxTypeParams[(size_t) s]->load())));
+        effectChain.setSlotAmount (s, fxAmountParams[(size_t) s]->load());
+    }
+    effectChain.process (buffer);
 
     // Master output volume + formant-loudness compensation.
     // Formant shifts redistribute spectral envelope energy: up-shift gets louder, down-shift quieter.

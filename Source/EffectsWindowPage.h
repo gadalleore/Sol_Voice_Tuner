@@ -55,7 +55,6 @@ public:
         wheel.getSlotType   = [this] (int slot)         { return typeIndex (slot); };
         wheel.setSlotType   = [this] (int slot, int t)  { setTypeIndex (slot, t); };
         wheel.onSlotClicked = [this] (int slot)         { openDetail (slot); };
-        wheel.onBackClicked = [this]                    { stack.pop(); };   // 63C-17: back on the wheel
         addAndMakeVisible (wheel);
 
         startTimerHz (15); // reflect host automation / preset changes

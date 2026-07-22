@@ -14,12 +14,12 @@
         dropping off the rim removes. Non-draggable mode (e.g. the Home
         wheel) has fixed items.
       * Chains can hold more slots than fit on the semicircle (25 for the FX
-        chains): slots sit at a fixed angular pitch and the rim SCROLLS
-        (mouse wheel over the wheel, outside the palette) through them;
-        off-arc slots are culled.
-      * When the owner sets `onBackClicked`, a "< BACK" pill rides the top of
-        the wheel — back lives on the wheel itself (63C-17), clicking it pops
-        the page.
+        chains): slots sit at a fixed angular pitch and the rim SCROLLS.
+        Primary scroll: HOVER the top/bottom edge of the wheel — the rim
+        auto-scrolls smoothly through the elements while the cursor sits in
+        the edge zone (works mid-drag too, so long chains can be assembled
+        in one gesture). Secondary: mouse wheel outside the palette.
+        Off-arc slots are culled.
       * The wheel ROTATES with hover: moving the mouse toward the top eases
         the wheel down (revealing items above) and vice versa. The full
         weighty spring/inertia treatment lands in 63C-12; `wheelPhase` stays
@@ -57,9 +57,6 @@ public:
     std::function<void (int slot, int typeId)> setSlotType;   // draggable mode only
     std::function<void (int slot)>             onSlotClicked; // fired for occupied slots only
     std::function<juce::String (int typeId)>   nameProvider;  // display name for a typeId
-
-    /** When set, a "< BACK" pill is shown riding the top of the wheel. */
-    std::function<void()> onBackClicked;
 
     int  emptyTypeId     = 0;
     bool allowDuplicates = true;
@@ -156,22 +153,6 @@ public:
             }
         }
 
-        // Back pill riding the top of the wheel.
-        if (onBackClicked != nullptr)
-        {
-            const auto pill = backPill();
-            g.setColour (juce::Colour (SolLookAndFeel::kPanel)
-                             .withAlpha (backHovered ? 1.0f : 0.85f));
-            g.fillRoundedRectangle (pill, pill.getHeight() * 0.5f);
-            g.setColour (juce::Colour (backHovered ? SolLookAndFeel::kOutlineHi
-                                                   : SolLookAndFeel::kAccentGlow)
-                             .withAlpha (backHovered ? 1.0f : 0.7f));
-            g.drawRoundedRectangle (pill, pill.getHeight() * 0.5f, backHovered ? 2.0f : 1.4f);
-            g.setColour (juce::Colour (SolLookAndFeel::kTitleHi));
-            g.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)));
-            g.drawText ("< BACK", pill, juce::Justification::centred);
-        }
-
         // Rim-scroll hints when the chain extends past the visible arc.
         if (scrollableRim())
         {
@@ -245,9 +226,9 @@ public:
 
     void mouseExit (const juce::MouseEvent&) override
     {
-        hoveredSlot = -1;
-        backHovered = false;
-        targetPhase = 0.0f;
+        hoveredSlot   = -1;
+        edgeScrollDir = 0.0f;
+        targetPhase   = 0.0f;
         startTimerHz (animFps);
     }
 
@@ -255,10 +236,6 @@ public:
     {
         computeGeometry();
         mouseDownPos = e.position;
-        pressedBack  = onBackClicked != nullptr && backPill().contains (e.position);
-
-        if (pressedBack)
-            return;
 
         if (const int p = hitPalette (e.position); itemsDraggable && p >= 0)
         {
@@ -282,6 +259,13 @@ public:
             return;
 
         dragPos = e.position;
+
+        // Edge zones stay live mid-drag so long chains can be assembled in
+        // one gesture: hold the drag near the top/bottom and the rim scrolls.
+        edgeScrollDir = computeEdgeScrollDir (e.position);
+        if (edgeScrollDir != 0.0f)
+            startTimerHz (animFps);
+
         repaint();
     }
 
@@ -289,15 +273,8 @@ public:
     {
         const bool moved  = e.position.getDistanceFrom (mouseDownPos) > 5.0f;
         const auto source = dragSource;
-        dragSource = DragSource::none;
-
-        if (pressedBack)
-        {
-            pressedBack = false;
-            if (! moved && onBackClicked != nullptr && backPill().contains (e.position))
-                onBackClicked();
-            return;
-        }
+        dragSource    = DragSource::none;
+        edgeScrollDir = computeEdgeScrollDir (e.position);
 
         if (source == DragSource::none)
             return;
@@ -371,29 +348,69 @@ private:
     void updateHover (juce::Point<float> pos)
     {
         hoveredSlot = hitSlot (pos);
-        backHovered = onBackClicked != nullptr && backPill().contains (pos);
 
         const float halfH = juce::jmax (1.0f, (float) getHeight() * 0.5f);
         const float norm  = juce::jlimit (-1.0f, 1.0f, (pos.y - centre.y) / halfH);
         targetPhase = -norm * maxHoverPhase;
 
+        // Edge zones: parking the cursor near the top/bottom of the wheel
+        // auto-scrolls the rim through chains longer than the visible arc.
+        edgeScrollDir = computeEdgeScrollDir (pos);
+
         startTimerHz (animFps);
         repaint();
     }
 
+    /** -1..1: how hard to auto-scroll the rim. Bottom edge scrolls forward
+        through the elements, top edge scrolls back; 0 outside the zones. */
+    float computeEdgeScrollDir (juce::Point<float> pos) const
+    {
+        if (! scrollableRim())
+            return 0.0f;
+
+        const float h    = juce::jmax (1.0f, (float) getHeight());
+        const float zone = h * kEdgeZoneFrac;
+
+        if (pos.y < zone)
+            return -(1.0f - pos.y / zone);
+        if (pos.y > h - zone)
+            return (pos.y - (h - zone)) / zone;
+        return 0.0f;
+    }
+
     void timerCallback() override
     {
-        const float diff = targetPhase - wheelPhase;
+        bool busy = false;
 
+        // Hover glide toward the target rotation.
+        const float diff = targetPhase - wheelPhase;
         if (std::abs (diff) < 0.0005f)
         {
             wheelPhase = targetPhase;
-            stopTimer();
         }
         else
         {
             wheelPhase += diff * 0.16f;
+            busy = true;
         }
+
+        // Continuous edge-zone rim scrolling (also active mid-drag).
+        if (edgeScrollDir != 0.0f && scrollableRim())
+        {
+            const float before = rimScroll;
+            rimScroll = juce::jlimit (0.0f, maxRimScroll(),
+                                      rimScroll + edgeScrollDir * kEdgeScrollRate / (float) animFps);
+            if (rimScroll != before)
+                busy = true;
+
+            if (dragging())
+                busy = true;    // keep ticking while a drag holds the zone
+            else
+                hoveredSlot = -1;
+        }
+
+        if (! busy && edgeScrollDir == 0.0f)
+            stopTimer();
 
         repaint();
     }
@@ -500,16 +517,6 @@ private:
         return juce::Rectangle<float> (pillW, pillH).withCentre (p);
     }
 
-    /** The back pill rides the top of the wheel, just above the slot arc,
-        following the hover glide (wheelPhase) but never the rim scroll. */
-    juce::Rectangle<float> backPill() const
-    {
-        const float a = backAngle + wheelPhase;
-        const juce::Point<float> p { centre.x + radius * std::sin (a),
-                                     centre.y - radius * std::cos (a) };
-        return juce::Rectangle<float> (76.0f, 26.0f).withCentre (p);
-    }
-
     juce::Rectangle<float> scrollHintTop() const
     {
         const juce::Point<float> p { centre.x + radius * std::sin (arcStart),
@@ -561,7 +568,11 @@ private:
     static constexpr float arcStart  = 0.30f;                                    // ~17 deg
     static constexpr float arcEnd    = juce::MathConstants<float>::pi - 0.30f;   // ~163 deg
     static constexpr float slotPitch = 0.38f;                                    // ~22 deg between chain slots
-    static constexpr float backAngle = 0.10f;                                    // back pill anchor (~6 deg)
+
+    // Hover-edge auto-scroll (63C-17): zone depth as a fraction of component
+    // height, and full-tilt scroll speed in radians of rim per second.
+    static constexpr float kEdgeZoneFrac   = 0.16f;
+    static constexpr float kEdgeScrollRate = 1.4f;
 
     float pillW = 104.0f, pillH = 30.0f;
 
@@ -574,9 +585,8 @@ private:
     float paletteScroll = 0.0f;
     float rimScroll     = 0.0f;
     float targetPhase   = 0.0f;
+    float edgeScrollDir = 0.0f;
     int   hoveredSlot   = -1;
-    bool  backHovered   = false;
-    bool  pressedBack   = false;
 
     DragSource dragSource = DragSource::none;
     int dragPaletteIndex = -1, dragFromSlot = -1, dragTypeId = 0;

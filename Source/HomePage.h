@@ -22,6 +22,8 @@ public:
 
     HomePage()
     {
+        setOpaque (true);   // 63C-17: pages fully cover whatever is beneath
+
         wheel.setNumSlots (3);
         wheel.setPillSize (196.0f, 40.0f);
         wheel.emptyTypeId    = -1;      // every slot is always occupied

@@ -65,11 +65,27 @@ PitchCorrectorAudioProcessor::PitchCorrectorAudioProcessor()
             fxAmountParams[(size_t) c][(size_t) s] = apvts.getRawParameterValue (fxAmountParamId (c, s));
         }
 
+    chainServicer.startTimerHz (30);
+
 }
 
 
 
-PitchCorrectorAudioProcessor::~PitchCorrectorAudioProcessor() = default;
+PitchCorrectorAudioProcessor::~PitchCorrectorAudioProcessor()
+{
+    chainServicer.stopTimer();
+}
+
+void PitchCorrectorAudioProcessor::serviceFxChains()
+{
+    if (! fxChainsPrepared.load (std::memory_order_acquire))
+        return;
+
+    for (int c = 0; c < numFxChains; ++c)
+        for (int s = 0; s < VocalFx::EffectChain::kNumSlots; ++s)
+            fxChains[(size_t) c].serviceSlot (s, (VocalFx::EffectType)
+                juce::roundToInt (fxTypeParams[(size_t) c][(size_t) s]->load()));
+}
 
 
 
@@ -292,8 +308,20 @@ void PitchCorrectorAudioProcessor::prepareToPlay (double sampleRate, int samples
     deEsser   .prepare (sampleRate, ch);
     pinkNoise .prepare (sampleRate);
 
-    for (auto& chain : fxChains)
-        chain.prepare (sampleRate, samplesPerBlock, ch);
+    // Chains drop all instances on prepare; re-install synchronously from the
+    // params so session load has no async gap (audio is not running here).
+    fxChainsPrepared.store (false, std::memory_order_release);
+    for (int c = 0; c < numFxChains; ++c)
+    {
+        fxChains[(size_t) c].prepare (sampleRate, samplesPerBlock, ch);
+        for (int s = 0; s < VocalFx::EffectChain::kNumSlots; ++s)
+        {
+            fxChains[(size_t) c].setSlotAmount (s, fxAmountParams[(size_t) c][(size_t) s]->load());
+            fxChains[(size_t) c].installImmediate (s, (VocalFx::EffectType)
+                juce::roundToInt (fxTypeParams[(size_t) c][(size_t) s]->load()));
+        }
+    }
+    fxChainsPrepared.store (true, std::memory_order_release);
 
     // Dry-input mono mix (sub vocoder modulator) + sibilance presence signal.
     monoInputScratch.assign ((size_t) juce::jmax (samplesPerBlock, 1), 0.0f);

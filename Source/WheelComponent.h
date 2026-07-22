@@ -1,21 +1,29 @@
 /*
     WheelComponent.h
     ----------------
-    Generic wheel for the v3 paging UI (63C-11), used by every page —
+    Generic wheel for the v3 paging UI (63C-11, geometry reworked in 63C-17) —
     wheels all the way down:
 
-      * Items sit ON the wheel: pills positioned along the rim of a drawn
-        wheel (rim + hub), top = input, bottom = output = signal order.
-      * The wheel's hub holds the palette of available items; pulling one out
-        onto the rim activates it in that slot (draggable mode, e.g. the
-        effects chains). Dragging rim->rim swaps slots; dropping off the rim
-        removes. Non-draggable mode (e.g. the Home wheel) has fixed items.
-      * Clicking an occupied item notifies the page (drill-in via PageStack).
+      * The wheel is a HALF WHEEL: its centre sits on the left edge of the
+        component, so the visible part is a semicircle bulging rightward
+        (per Gard's sketches). Items are pills on the rim, top = input,
+        bottom = output = signal order.
+      * The visible half of the hub holds the palette of available items;
+        pulling one out onto the rim activates it in that slot (draggable
+        mode, e.g. the effects chains). Dragging rim->rim swaps slots;
+        dropping off the rim removes. Non-draggable mode (e.g. the Home
+        wheel) has fixed items.
+      * Chains can hold more slots than fit on the semicircle (25 for the FX
+        chains): slots sit at a fixed angular pitch and the rim SCROLLS
+        (mouse wheel over the wheel, outside the palette) through them;
+        off-arc slots are culled.
+      * When the owner sets `onBackClicked`, a "< BACK" pill rides the top of
+        the wheel — back lives on the wheel itself (63C-17), clicking it pops
+        the page.
       * The wheel ROTATES with hover: moving the mouse toward the top eases
-        the wheel down (revealing items above) and vice versa — a smooth
-        eased rotation driven per-frame. The full weighty spring/inertia
-        treatment lands in 63C-12; `wheelPhase` stays a plain float so that
-        pass can take over the motion.
+        the wheel down (revealing items above) and vice versa. The full
+        weighty spring/inertia treatment lands in 63C-12; `wheelPhase` stays
+        a plain float so that pass can take over the motion.
 
     The component is a pure view: slot state lives in the owner's model
     (APVTS chain parameters for the effects windows) and is read/written
@@ -50,6 +58,9 @@ public:
     std::function<void (int slot)>             onSlotClicked; // fired for occupied slots only
     std::function<juce::String (int typeId)>   nameProvider;  // display name for a typeId
 
+    /** When set, a "< BACK" pill is shown riding the top of the wheel. */
+    std::function<void()> onBackClicked;
+
     int  emptyTypeId     = 0;
     bool allowDuplicates = true;
     bool itemsDraggable  = true;   // false = fixed drill-in items (Home wheel)
@@ -58,7 +69,7 @@ public:
         Eased toward the hover target each frame; animation-pass hook. */
     float wheelPhase = 0.0f;
 
-    void setNumSlots (int n)              { numSlots = juce::jmax (1, n); repaint(); }
+    void setNumSlots (int n)              { numSlots = juce::jmax (1, n); clampRimScroll(); repaint(); }
     void setPillSize (float w, float h)   { pillW = w; pillH = h; repaint(); }
 
     void setPalette (std::vector<Item> items)
@@ -73,7 +84,7 @@ public:
     {
         computeGeometry();
 
-        // The wheel itself: full rim, brighter active arc, hub disc.
+        // The wheel itself: rim circle (left half clips away), active arc, hub.
         {
             g.setColour (juce::Colour (SolLookAndFeel::kOutline).withAlpha (0.35f));
             g.drawEllipse (centre.x - radius, centre.y - radius,
@@ -81,8 +92,7 @@ public:
 
             juce::Path arc;
             arc.addCentredArc (centre.x, centre.y, radius, radius, 0.0f,
-                               slotAngle (0) - 0.16f,
-                               slotAngle (numSlots - 1) + 0.16f, true);
+                               arcStart - 0.10f, arcEnd + 0.10f, true);
             g.setColour (juce::Colour (SolLookAndFeel::kAccentGlow).withAlpha (0.45f));
             g.strokePath (arc, juce::PathStrokeType (3.5f));
 
@@ -93,9 +103,12 @@ public:
             g.drawEllipse (centre.x - hubR, centre.y - hubR, hubR * 2.0f, hubR * 2.0f, 1.0f);
         }
 
-        // Slots on the rim.
+        // Slots on the rim (culled to the visible arc).
         for (int i = 0; i < numSlots; ++i)
         {
+            if (! slotVisible (i))
+                continue;
+
             const auto pos      = slotCentre (i);
             const int  type     = slotType (i);
             const bool occupied = type != emptyTypeId;
@@ -143,7 +156,34 @@ public:
             }
         }
 
-        // Palette inside the hub.
+        // Back pill riding the top of the wheel.
+        if (onBackClicked != nullptr)
+        {
+            const auto pill = backPill();
+            g.setColour (juce::Colour (SolLookAndFeel::kPanel)
+                             .withAlpha (backHovered ? 1.0f : 0.85f));
+            g.fillRoundedRectangle (pill, pill.getHeight() * 0.5f);
+            g.setColour (juce::Colour (backHovered ? SolLookAndFeel::kOutlineHi
+                                                   : SolLookAndFeel::kAccentGlow)
+                             .withAlpha (backHovered ? 1.0f : 0.7f));
+            g.drawRoundedRectangle (pill, pill.getHeight() * 0.5f, backHovered ? 2.0f : 1.4f);
+            g.setColour (juce::Colour (SolLookAndFeel::kTitleHi));
+            g.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)));
+            g.drawText ("< BACK", pill, juce::Justification::centred);
+        }
+
+        // Rim-scroll hints when the chain extends past the visible arc.
+        if (scrollableRim())
+        {
+            g.setColour (juce::Colour (SolLookAndFeel::kLabelAlt).withAlpha (0.45f));
+            g.setFont (juce::Font (juce::FontOptions (10.0f)));
+            if (rimScroll > 0.001f)
+                g.drawText ("^ more", scrollHintTop(),    juce::Justification::centredLeft);
+            if (rimScroll < maxRimScroll() - 0.001f)
+                g.drawText ("v more", scrollHintBottom(), juce::Justification::centredLeft);
+        }
+
+        // Palette inside the visible half of the hub.
         if (! palette.empty())
         {
             g.saveState();
@@ -173,7 +213,8 @@ public:
                 g.setColour (juce::Colour (SolLookAndFeel::kLabel)
                                  .withAlpha (isDragged ? 0.5f : 1.0f));
                 g.setFont (juce::Font (juce::FontOptions (12.5f)));
-                g.drawText (palette[i].name, pill, juce::Justification::centred);
+                g.drawText (palette[i].name, pill.reduced (6.0f, 0.0f),
+                            juce::Justification::centred);
             }
 
             g.restoreState();
@@ -205,6 +246,7 @@ public:
     void mouseExit (const juce::MouseEvent&) override
     {
         hoveredSlot = -1;
+        backHovered = false;
         targetPhase = 0.0f;
         startTimerHz (animFps);
     }
@@ -213,6 +255,10 @@ public:
     {
         computeGeometry();
         mouseDownPos = e.position;
+        pressedBack  = onBackClicked != nullptr && backPill().contains (e.position);
+
+        if (pressedBack)
+            return;
 
         if (const int p = hitPalette (e.position); itemsDraggable && p >= 0)
         {
@@ -244,6 +290,14 @@ public:
         const bool moved  = e.position.getDistanceFrom (mouseDownPos) > 5.0f;
         const auto source = dragSource;
         dragSource = DragSource::none;
+
+        if (pressedBack)
+        {
+            pressedBack = false;
+            if (! moved && onBackClicked != nullptr && backPill().contains (e.position))
+                onBackClicked();
+            return;
+        }
 
         if (source == DragSource::none)
             return;
@@ -285,13 +339,26 @@ public:
     void mouseWheelMove (const juce::MouseEvent& e,
                          const juce::MouseWheelDetails& wheel) override
     {
-        if (palette.empty() || ! paletteClip.contains (e.position))
-            return;
+        computeGeometry();
 
-        const float span = (float) palette.size() * paletteRowH - paletteClip.getHeight();
-        paletteScroll = juce::jlimit (0.0f, juce::jmax (0.0f, span),
-                                      paletteScroll - wheel.deltaY * 48.0f);
-        repaint();
+        // Over the palette: scroll the palette list.
+        if (! palette.empty() && paletteClip.contains (e.position))
+        {
+            const float span = (float) palette.size() * paletteRowH - paletteClip.getHeight();
+            paletteScroll = juce::jlimit (0.0f, juce::jmax (0.0f, span),
+                                          paletteScroll - wheel.deltaY * 48.0f);
+            repaint();
+            return;
+        }
+
+        // Anywhere else: scroll the rim through the chain's slots.
+        if (scrollableRim())
+        {
+            rimScroll = juce::jlimit (0.0f, maxRimScroll(),
+                                      rimScroll - wheel.deltaY * slotPitch * 1.5f);
+            hoveredSlot = hitSlot (e.position);
+            repaint();
+        }
     }
 
 private:
@@ -304,6 +371,7 @@ private:
     void updateHover (juce::Point<float> pos)
     {
         hoveredSlot = hitSlot (pos);
+        backHovered = onBackClicked != nullptr && backPill().contains (pos);
 
         const float halfH = juce::jmax (1.0f, (float) getHeight() * 0.5f);
         const float norm  = juce::jlimit (-1.0f, 1.0f, (pos.y - centre.y) / halfH);
@@ -365,25 +433,59 @@ private:
 
     //==========================================================================
     // Geometry. JUCE arc convention: angle 0 = 12 o'clock, positive clockwise.
+    // 63C-17: HALF WHEEL — the wheel centre is pinned to the component's left
+    // edge, so only the right half (angles arcStart..arcEnd, the semicircle
+    // bulging rightward) is visible.
     void computeGeometry()
     {
         const auto b = getLocalBounds().toFloat();
-        radius = juce::jmin (b.getHeight() * 0.46f, b.getWidth() * 0.52f);
-        centre = { b.getX() + b.getWidth() * 0.34f, b.getCentreY() };
+        radius = juce::jmin (b.getHeight() * 0.52f, b.getWidth() * 0.62f);
+        centre = { b.getX() + 2.0f, b.getCentreY() };
 
-        paletteClip = juce::Rectangle<float> (pillW + 24.0f,
-                                              juce::jmin (hubRadius() * 1.7f,
-                                                          b.getHeight() * 0.62f))
-                          .withCentre (centre);
+        const float hubR = hubRadius();
+        const float palW = juce::jlimit (72.0f, 150.0f, hubR - 14.0f);
+        const float palH = juce::jmin (hubR * 1.6f, b.getHeight() * 0.62f);
+        paletteClip = { centre.x + 8.0f, centre.y - palH * 0.5f, palW, palH };
+
+        clampRimScroll();
     }
 
-    float hubRadius() const noexcept { return radius * 0.55f; }
+    float hubRadius() const noexcept { return radius * 0.62f; }
+
+    bool scrollableRim() const noexcept
+    {
+        return itemsDraggable
+            && (float) (numSlots - 1) * slotPitch > (arcEnd - arcStart) + 0.001f;
+    }
+
+    float maxRimScroll() const noexcept
+    {
+        return juce::jmax (0.0f, (float) (numSlots - 1) * slotPitch - (arcEnd - arcStart));
+    }
+
+    void clampRimScroll() noexcept
+    {
+        rimScroll = juce::jlimit (0.0f, maxRimScroll(), rimScroll);
+    }
 
     float slotAngle (int i) const
     {
-        // Slots along the right-hand quarter-arc, top (input) to bottom (output).
-        const float t = numSlots > 1 ? (float) i / (float) (numSlots - 1) : 0.5f;
-        return juce::degreesToRadians (45.0f + 90.0f * t) + wheelPhase;
+        if (! scrollableRim())
+        {
+            // Few enough slots: spread them evenly across the semicircle.
+            const float t = ((float) i + 0.5f) / (float) numSlots;
+            return arcStart + (arcEnd - arcStart) * t + wheelPhase;
+        }
+
+        // Many slots: fixed pitch + rim scroll.
+        return arcStart + (float) i * slotPitch - rimScroll + wheelPhase;
+    }
+
+    bool slotVisible (int i) const
+    {
+        const float a = slotAngle (i);
+        return a >= arcStart - slotPitch * 0.45f
+            && a <= arcEnd   + slotPitch * 0.45f;
     }
 
     juce::Point<float> slotCentre (int i) const
@@ -398,17 +500,43 @@ private:
         return juce::Rectangle<float> (pillW, pillH).withCentre (p);
     }
 
+    /** The back pill rides the top of the wheel, just above the slot arc,
+        following the hover glide (wheelPhase) but never the rim scroll. */
+    juce::Rectangle<float> backPill() const
+    {
+        const float a = backAngle + wheelPhase;
+        const juce::Point<float> p { centre.x + radius * std::sin (a),
+                                     centre.y - radius * std::cos (a) };
+        return juce::Rectangle<float> (76.0f, 26.0f).withCentre (p);
+    }
+
+    juce::Rectangle<float> scrollHintTop() const
+    {
+        const juce::Point<float> p { centre.x + radius * std::sin (arcStart),
+                                     centre.y - radius * std::cos (arcStart) };
+        return { p.x + pillW * 0.65f, p.y - 8.0f, 60.0f, 14.0f };
+    }
+
+    juce::Rectangle<float> scrollHintBottom() const
+    {
+        const juce::Point<float> p { centre.x + radius * std::sin (arcEnd),
+                                     centre.y - radius * std::cos (arcEnd) };
+        return { p.x + pillW * 0.65f, p.y - 6.0f, 60.0f, 14.0f };
+    }
+
     juce::Rectangle<float> paletteRect (int index) const
     {
         const float top = paletteClip.getY() + 20.0f
                         + (float) index * paletteRowH - paletteScroll;
-        return { paletteClip.getCentreX() - pillW * 0.5f, top, pillW, pillH };
+        return { paletteClip.getX() + 4.0f, top,
+                 paletteClip.getWidth() - 8.0f, pillH };
     }
 
     int hitSlot (juce::Point<float> p) const
     {
         for (int i = 0; i < numSlots; ++i)
-            if (pillAround (slotCentre (i)).expanded (8.0f).contains (p))
+            if (slotVisible (i)
+                && pillAround (slotCentre (i)).expanded (8.0f).contains (p))
                 return i;
         return -1;
     }
@@ -429,6 +557,12 @@ private:
     static constexpr float slotRingR     = 13.0f;
     static constexpr float paletteRowH   = 36.0f;
 
+    // Visible semicircle (right half of the circle, top -> bottom).
+    static constexpr float arcStart  = 0.30f;                                    // ~17 deg
+    static constexpr float arcEnd    = juce::MathConstants<float>::pi - 0.30f;   // ~163 deg
+    static constexpr float slotPitch = 0.38f;                                    // ~22 deg between chain slots
+    static constexpr float backAngle = 0.10f;                                    // back pill anchor (~6 deg)
+
     float pillW = 104.0f, pillH = 30.0f;
 
     int numSlots = 6;
@@ -438,8 +572,11 @@ private:
     float radius = 0.0f;
     juce::Rectangle<float> paletteClip;
     float paletteScroll = 0.0f;
+    float rimScroll     = 0.0f;
     float targetPhase   = 0.0f;
     int   hoveredSlot   = -1;
+    bool  backHovered   = false;
+    bool  pressedBack   = false;
 
     DragSource dragSource = DragSource::none;
     int dragPaletteIndex = -1, dragFromSlot = -1, dragTypeId = 0;

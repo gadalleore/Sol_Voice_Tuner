@@ -151,11 +151,29 @@ private:
     // input global / lead voice / output global (indexed by FxChainId).
     std::array<VocalFx::EffectChain, numFxChains> fxChains;
 
-    // Cached raw-value pointers for the chains' 36 params (avoids per-block
-    // String construction on the audio thread).
+    // Cached raw-value pointers for the chains' type/amount params (avoids
+    // per-block String construction on the audio thread).
     using ChainParamPtrs = std::array<std::atomic<float>*, VocalFx::EffectChain::kNumSlots>;
     std::array<ChainParamPtrs, numFxChains> fxTypeParams   {};
     std::array<ChainParamPtrs, numFxChains> fxAmountParams {};
+
+    // 63C-17 lazy-allocation servicer: a message-thread timer that constructs
+    // requested effect instances and frees retired ones (EffectChain mailboxes).
+    class ChainServicer final : public juce::Timer
+    {
+    public:
+        explicit ChainServicer (PitchCorrectorAudioProcessor& owner) : proc (owner) {}
+        void timerCallback() override { proc.serviceFxChains(); }
+    private:
+        PitchCorrectorAudioProcessor& proc;
+    };
+
+    ChainServicer chainServicer { *this };
+    std::atomic<bool> fxChainsPrepared { false };
+
+    /** Message thread: forwards each slot's desired type to its chain so
+        instances get built/retired off the audio thread. */
+    void serviceFxChains();
 
     // Per-sample mono-summed dry input — modulator for the sub vocoder.
     std::vector<float> monoInputScratch;

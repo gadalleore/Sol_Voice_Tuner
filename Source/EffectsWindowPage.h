@@ -7,9 +7,10 @@
     dynamically from the chain's APVTS choice parameter, so new effects
     (63C-8) appear automatically. Pulling an effect onto the rim writes the
     slot's type parameter; clicking a placed effect drills into its detail
-    page. The 6-slot parameter model is the backing store; the wheel is the
-    view, so host automation and DAW-restored state show up too (repaint
-    timer).
+    page. The 25-slot parameter model (63C-17) is the backing store; the
+    wheel is the view, so host automation and DAW-restored state show up too
+    (repaint timer). The rim scrolls through the slots that don't fit on the
+    semicircle.
 */
 
 #pragma once
@@ -54,6 +55,7 @@ public:
         wheel.getSlotType   = [this] (int slot)         { return typeIndex (slot); };
         wheel.setSlotType   = [this] (int slot, int t)  { setTypeIndex (slot, t); };
         wheel.onSlotClicked = [this] (int slot)         { openDetail (slot); };
+        wheel.onBackClicked = [this]                    { stack.pop(); };   // 63C-17: back on the wheel
         addAndMakeVisible (wheel);
 
         startTimerHz (15); // reflect host automation / preset changes

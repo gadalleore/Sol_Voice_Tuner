@@ -20,6 +20,8 @@ public:
     SolPage (PageStack& stackToUse, const juce::String& titleText)
         : stack (stackToUse)
     {
+        setOpaque (true);   // 63C-17: pages fully cover whatever is beneath
+
         title.setText (titleText, juce::dontSendNotification);
         title.setJustificationType (juce::Justification::centred);
         title.setFont (juce::Font (juce::FontOptions (18.0f, juce::Font::bold)));

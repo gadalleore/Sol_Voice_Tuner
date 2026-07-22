@@ -1,20 +1,29 @@
 /*
     EffectChain.h
     -------------
-    Modular vocal-effect chain (63C-7) — the chain primitive of the v3 audio
-    graph (63C-15), instantiated three times by the processor: input global,
-    lead voice, and output global.
+    Modular vocal-effect chain (63C-7, capacity + allocation reworked in
+    63C-17) — the chain primitive of the v3 audio graph (63C-15),
+    instantiated three times by the processor: input global, lead voice,
+    and output global.
 
       * VocalEffect  — base interface: prepare / process / reset plus a single
         smoothed "Amount" macro per effect (one obvious sound, one knob).
       * SunSaturator — proof-of-architecture warm tanh saturator.
-      * EffectChain  — 6 ordered slots, each empty or holding one effect.
-        Signal flows slot 0 -> 5. Swaps/reorders are click-free: a slot fades
+      * EffectChain  — 25 ordered slots, each empty or holding one effect.
+        Signal flows slot 0 -> 24. Swaps/reorders are click-free: a slot fades
         its wet path to silence, exchanges the effect, then fades back in.
 
-    Real-time contract: allocation- and lock-free after prepare(). The UI
-    talks through APVTS parameters which the processor reads once per block
-    and forwards here on the audio thread.
+    Allocation model (63C-17): slots no longer pre-own every effect type
+    (25 slots x 3 chains made that unscalable). Instances are constructed
+    lazily on the MESSAGE thread (serviceSlot(), driven by a processor
+    timer) and handed to the audio thread through a per-slot single-slot
+    lock-free mailbox (`staged`); the audio thread retires the outgoing
+    instance through a second mailbox (`retired`) which the message thread
+    deletes. The audio thread stays allocation- and lock-free; a slot whose
+    instance hasn't arrived yet simply stays faded out until it does.
+
+    The UI talks through APVTS parameters which the processor reads once per
+    block and forwards here on the audio thread.
 */
 
 #pragma once
@@ -23,7 +32,9 @@
 #include "VocalFx.h"
 
 #include <array>
+#include <atomic>
 #include <cmath>
+#include <memory>
 
 namespace VocalFx
 {
@@ -65,6 +76,10 @@ namespace VocalFx
         void setAmount (float a) noexcept          { amountRamp.setTarget (juce::jlimit (0.0f, 1.0f, a)); }
         void setAmountImmediate (float a) noexcept { amountRamp.reset (juce::jlimit (0.0f, 1.0f, a)); }
 
+        /** Set by the factory; lets the audio thread identify a handed-off
+            instance without any further synchronisation. */
+        EffectType typeTag { EffectType::Empty };
+
     protected:
         GainRamp amountRamp;
     };
@@ -105,37 +120,129 @@ namespace VocalFx
     };
 
     //==============================================================================
-    /** Six ordered slots of VocalEffects, processed in slot order after pitch
-        correction. All slot changes go through a per-slot wet-gain fade
-        (~8 ms tau): fade out -> exchange effect -> fade in, so swapping and
-        reordering while audio runs never clicks. */
+    /** Constructs a fresh, unprepared instance of the given type.
+        Message thread (or prepare-time) only — never the audio thread. */
+    inline std::unique_ptr<VocalEffect> createEffect (EffectType t)
+    {
+        std::unique_ptr<VocalEffect> fx;
+
+        switch (t)
+        {
+            case EffectType::Saturate:  fx = std::make_unique<SunSaturator>(); break;
+            case EffectType::Empty:
+            case EffectType::NumTypes:  break;
+        }
+
+        if (fx != nullptr)
+            fx->typeTag = t;
+        return fx;
+    }
+
+    //==============================================================================
+    /** 25 ordered slots of VocalEffects, processed in slot order. All slot
+        changes go through a per-slot wet-gain fade (~8 ms tau): fade out ->
+        exchange effect -> fade in, so swapping and reordering while audio
+        runs never clicks.
+
+        Threading (63C-17 lazy allocation):
+          * audio thread: setSlotEffect / setSlotAmount / process / reset.
+          * message thread: serviceSlot() periodically (constructs + stages
+            instances, deletes retired ones).
+          * prepare-time (audio not running): prepare / installImmediate. */
     class EffectChain
     {
     public:
-        static constexpr int kNumSlots = 6;
+        static constexpr int kNumSlots = 25;
 
+        ~EffectChain()
+        {
+            for (auto& s : slots)
+                s.freeAllInstances();
+        }
+
+        /** Audio must not be running. Drops every instance (params re-install
+            via installImmediate + serviceSlot afterwards). */
         void prepare (double sampleRate, int maxBlockSize, int numChannels)
         {
-            scratch.setSize (juce::jmax (numChannels, 1), juce::jmax (maxBlockSize, 1), false, true, true);
+            spec = { sampleRate, juce::jmax (maxBlockSize, 1), juce::jmax (numChannels, 1) };
+
+            scratch.setSize (spec.channels, spec.blockSize, false, true, true);
 
             for (auto& s : slots)
             {
-                s.saturator.prepare (sampleRate, maxBlockSize, numChannels);
+                s.freeAllInstances();
                 s.wet.prepare (sampleRate, 8.0f);
                 s.wet.reset (0.0f);
                 s.active  = EffectType::Empty;
                 s.desired = EffectType::Empty;
                 s.amount  = 1.0f;
+                s.lastProvidedType = EffectType::Empty;
             }
         }
 
-        void reset() noexcept
+        /** Prepare-time only (audio not running): synchronously give a slot
+            its instance so session load / prepareToPlay has no async gap. */
+        void installImmediate (int slot, EffectType t)
         {
-            for (auto& s : slots)
+            if (! juce::isPositiveAndBelow (slot, kNumSlots))
+                return;
+
+            auto& s = slots[(size_t) slot];
+            t = clampType (t);
+
+            s.freeAllInstances();
+            s.lastProvidedType = t;
+            s.active  = t;
+            s.desired = t;
+
+            if (auto fx = createEffect (t))
             {
-                s.saturator.reset();
-                s.wet.reset (s.active == EffectType::Empty ? 0.0f : 1.0f);
+                fx->prepare (spec.sampleRate, spec.blockSize, spec.channels);
+                fx->setAmountImmediate (s.amount);
+                s.current = fx.release();
+                s.wet.reset (1.0f);
             }
+            else
+            {
+                s.wet.reset (0.0f);
+            }
+        }
+
+        /** MESSAGE THREAD, periodic: give the slot what it needs to reach
+            `desiredType`, and free anything the audio thread retired. */
+        void serviceSlot (int slot, EffectType desiredType)
+        {
+            if (! juce::isPositiveAndBelow (slot, kNumSlots))
+                return;
+
+            auto& s = slots[(size_t) slot];
+            desiredType = clampType (desiredType);
+
+            // Free whatever the audio thread has retired.
+            if (auto* dead = s.retired.exchange (nullptr))
+                delete dead;
+
+            if (desiredType == s.lastProvidedType)
+                return;
+
+            // Drop any staged instance that was never consumed (stale wish).
+            if (auto* stale = s.staged.exchange (nullptr))
+                delete stale;
+
+            s.lastProvidedType = desiredType;
+
+            if (desiredType == EffectType::Empty)
+                return;                     // audio side just retires its current
+
+            auto fx = createEffect (desiredType);
+            if (fx == nullptr)
+                return;
+
+            fx->prepare (spec.sampleRate, spec.blockSize, spec.channels);
+
+            // Publish: typeTag was written before this release-store, so the
+            // audio thread reading the pointer (acquire) sees a complete object.
+            s.staged.store (fx.release(), std::memory_order_release);
         }
 
         /** Audio thread, before process(): what the slot should hold. */
@@ -150,6 +257,16 @@ namespace VocalFx
         {
             if (juce::isPositiveAndBelow (slot, kNumSlots))
                 slots[(size_t) slot].amount = juce::jlimit (0.0f, 1.0f, amount);
+        }
+
+        void reset() noexcept
+        {
+            for (auto& s : slots)
+            {
+                if (s.current != nullptr)
+                    s.current->reset();
+                s.wet.reset (s.active == EffectType::Empty || s.current == nullptr ? 0.0f : 1.0f);
+            }
         }
 
         void process (juce::AudioBuffer<float>& buffer) noexcept
@@ -168,23 +285,9 @@ namespace VocalFx
 
             for (auto& s : slots)
             {
-                // --- Swap state machine (evaluated at block boundaries) ---
-                if (s.desired != s.active)
-                {
-                    s.wet.setTarget (0.0f);
-                    if (s.wet.current < kSilentWet)
-                    {
-                        s.active = s.desired;
-                        if (auto* fx = s.effectFor (s.active))
-                        {
-                            fx->reset();
-                            fx->setAmountImmediate (s.amount);
-                            s.wet.setTarget (1.0f);
-                        }
-                    }
-                }
+                updateSlotInstance (s);
 
-                auto* fx = s.effectFor (s.active);
+                auto* fx = s.current;
                 if (fx == nullptr)
                     continue;                       // Empty slot: bit-exact passthrough
 
@@ -224,27 +327,90 @@ namespace VocalFx
 
         struct Slot
         {
-            // One instance of every effect type lives here pre-prepared, so
-            // exchanging effects is a pointer choice — no allocation, ever.
-            SunSaturator saturator;
+            // Audio-thread-owned instance (deleted only via the retire mailbox
+            // or at prepare/destruction time when audio is not running).
+            VocalEffect* current = nullptr;
 
-            VocalEffect* effectFor (EffectType t) noexcept
-            {
-                switch (t)
-                {
-                    case EffectType::Saturate: return &saturator;
-                    case EffectType::Empty:
-                    case EffectType::NumTypes: break;
-                }
-                return nullptr;
-            }
+            // Single-slot mailboxes: message thread -> audio thread (staged)
+            // and audio thread -> message thread (retired).
+            std::atomic<VocalEffect*> staged  { nullptr };
+            std::atomic<VocalEffect*> retired { nullptr };
+
+            // Message-thread bookkeeping: the type we last provided for.
+            EffectType lastProvidedType { EffectType::Empty };
 
             EffectType active  { EffectType::Empty };
             EffectType desired { EffectType::Empty };
             float      amount  { 1.0f };
             GainRamp   wet;
+
+            /** Only when audio is guaranteed not running. */
+            void freeAllInstances()
+            {
+                delete current;                       current = nullptr;
+                delete staged .exchange (nullptr);
+                delete retired.exchange (nullptr);
+            }
         };
 
+        /** Audio thread: per-block swap state machine. Fades out on a type
+            change, then completes the exchange once (a) the slot is silent,
+            (b) the staged instance has arrived (for non-Empty targets) and
+            (c) the retire mailbox has room for the outgoing instance. Until
+            then the slot just stays faded out — never blocks, never allocates. */
+        void updateSlotInstance (Slot& s) noexcept
+        {
+            const bool typeMatches = s.active == s.desired
+                                  && (s.desired == EffectType::Empty) == (s.current == nullptr);
+            if (typeMatches)
+                return;
+
+            s.wet.setTarget (0.0f);
+            if (s.wet.current >= kSilentWet)
+                return;                              // still fading out
+
+            if (s.desired == EffectType::Empty)
+            {
+                if (s.current != nullptr)
+                {
+                    if (s.retired.load (std::memory_order_relaxed) != nullptr)
+                        return;                      // mailbox full — retry next block
+                    s.retired.store (s.current, std::memory_order_release);
+                    s.current = nullptr;
+                }
+                s.active = EffectType::Empty;
+                return;
+            }
+
+            auto* incoming = s.staged.load (std::memory_order_acquire);
+            if (incoming == nullptr || incoming->typeTag != s.desired)
+                return;                              // instance not here yet
+
+            if (s.current != nullptr && s.retired.load (std::memory_order_relaxed) != nullptr)
+                return;                              // no room to retire — retry
+
+            incoming = s.staged.exchange (nullptr, std::memory_order_acq_rel);
+            if (incoming == nullptr)
+                return;                              // raced with a re-stage; retry
+
+            if (s.current != nullptr)
+                s.retired.store (s.current, std::memory_order_release);
+
+            s.current = incoming;
+            s.active  = incoming->typeTag;
+            s.current->reset();
+            s.current->setAmountImmediate (s.amount);
+            s.wet.setTarget (1.0f);
+        }
+
+        struct PrepareSpec
+        {
+            double sampleRate = 44100.0;
+            int    blockSize  = 512;
+            int    channels   = 2;
+        };
+
+        PrepareSpec spec;
         std::array<Slot, kNumSlots> slots;
         juce::AudioBuffer<float>    scratch;
     };

@@ -1,7 +1,9 @@
 /*
     EffectChain.h
     -------------
-    Modular vocal-effect chain driven by the Effect Wheel (63C-7).
+    Modular vocal-effect chain (63C-7) — the chain primitive of the v3 audio
+    graph (63C-15), instantiated three times by the processor: input global,
+    lead voice, and output global.
 
       * VocalEffect  — base interface: prepare / process / reset plus a single
         smoothed "Amount" macro per effect (one obvious sound, one knob).

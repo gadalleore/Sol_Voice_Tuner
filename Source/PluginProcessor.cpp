@@ -58,11 +58,12 @@ PitchCorrectorAudioProcessor::PitchCorrectorAudioProcessor()
 
     activeMidiNotes.reserve (32);
 
-    for (int s = 0; s < VocalFx::EffectChain::kNumSlots; ++s)
-    {
-        fxTypeParams  [(size_t) s] = apvts.getRawParameterValue (fxTypeParamId (s));
-        fxAmountParams[(size_t) s] = apvts.getRawParameterValue (fxAmountParamId (s));
-    }
+    for (int c = 0; c < numFxChains; ++c)
+        for (int s = 0; s < VocalFx::EffectChain::kNumSlots; ++s)
+        {
+            fxTypeParams  [(size_t) c][(size_t) s] = apvts.getRawParameterValue (fxTypeParamId (c, s));
+            fxAmountParams[(size_t) c][(size_t) s] = apvts.getRawParameterValue (fxAmountParamId (c, s));
+        }
 
 }
 
@@ -230,22 +231,28 @@ PitchCorrectorAudioProcessor::createParameterLayout()
 
 
 
-    // Effect Wheel chain: per-slot effect choice + Amount macro. Choice item
-    // order must match VocalFx::EffectType (append-only — see EffectChain.h).
+    // 63C-15 audio graph: three effect chains (input global / lead voice /
+    // output global), each with per-slot effect choice + Amount macro.
+    // Choice item order must match VocalFx::EffectType (append-only — see
+    // EffectChain.h). Param IDs replace the single-chain fxType*/fxAmount*
+    // set from 63C-7; pre-release, so no session migration is provided.
     juce::StringArray fxNames;
     for (int t = 0; t < (int) VocalFx::EffectType::NumTypes; ++t)
         fxNames.add (VocalFx::effectTypeName ((VocalFx::EffectType) t));
 
-    for (int s = 0; s < VocalFx::EffectChain::kNumSlots; ++s)
-    {
-        params.push_back (std::make_unique<APC> (juce::ParameterID { fxTypeParamId (s), 1 },
-                                                 "FX Slot " + juce::String (s + 1),
-                                                 fxNames, 0));
+    for (int c = 0; c < numFxChains; ++c)
+        for (int s = 0; s < VocalFx::EffectChain::kNumSlots; ++s)
+        {
+            const auto slotName = juce::String (fxChainDisplayName (c))
+                                + " FX " + juce::String (s + 1);
 
-        params.push_back (std::make_unique<APF> (juce::ParameterID { fxAmountParamId (s), 1 },
-                                                 "FX Slot " + juce::String (s + 1) + " Amount",
-                                                 Range (0.0f, 1.0f, 0.01f), 0.5f, roboticAttrs));
-    }
+            params.push_back (std::make_unique<APC> (juce::ParameterID { fxTypeParamId (c, s), 1 },
+                                                     slotName, fxNames, 0));
+
+            params.push_back (std::make_unique<APF> (juce::ParameterID { fxAmountParamId (c, s), 1 },
+                                                     slotName + " Amount",
+                                                     Range (0.0f, 1.0f, 0.01f), 0.5f, roboticAttrs));
+        }
 
 
 
@@ -285,7 +292,8 @@ void PitchCorrectorAudioProcessor::prepareToPlay (double sampleRate, int samples
     deEsser   .prepare (sampleRate, ch);
     pinkNoise .prepare (sampleRate);
 
-    effectChain.prepare (sampleRate, samplesPerBlock, ch);
+    for (auto& chain : fxChains)
+        chain.prepare (sampleRate, samplesPerBlock, ch);
 
     // Dry-input mono mix (sub vocoder modulator) + sibilance presence signal.
     monoInputScratch.assign ((size_t) juce::jmax (samplesPerBlock, 1), 0.0f);
@@ -339,7 +347,9 @@ void PitchCorrectorAudioProcessor::releaseResources()
     subVocoder.reset();
     deEsser   .reset();
     pinkNoise .reset();
-    effectChain.reset();
+
+    for (auto& chain : fxChains)
+        chain.reset();
 
 }
 
@@ -819,6 +829,31 @@ float PitchCorrectorAudioProcessor::computeEffectiveFormantSemitones (float pitc
 
 //==============================================================================
 
+void PitchCorrectorAudioProcessor::applyFxChain (int chain, juce::AudioBuffer<float>& buffer) noexcept
+{
+    if (! juce::isPositiveAndBelow (chain, (int) numFxChains))
+        return;
+
+    auto& fx = fxChains[(size_t) chain];
+
+    for (int s = 0; s < VocalFx::EffectChain::kNumSlots; ++s)
+    {
+        fx.setSlotEffect (s, VocalFx::EffectChain::clampType (
+            (VocalFx::EffectType) juce::roundToInt (fxTypeParams[(size_t) chain][(size_t) s]->load())));
+        fx.setSlotAmount (s, fxAmountParams[(size_t) chain][(size_t) s]->load());
+    }
+
+    fx.process (buffer);
+}
+
+void PitchCorrectorAudioProcessor::mixHarmonyVoices (juce::AudioBuffer<float>&) noexcept
+{
+    // Stub: harmony voices (63C-13) will render pitch-shifted copies of the
+    // lead voice and sum them here, between the voice chain and output chain.
+}
+
+//==============================================================================
+
 void PitchCorrectorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
                                                  juce::MidiBuffer& midi)
@@ -859,15 +894,11 @@ void PitchCorrectorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
 
 
 
-    runPitchDetection (buffer);
-
-
-
     if (bypass)
-
+    {
+        runPitchDetection (buffer);   // keep the pitch readout alive while bypassed
         return;
-
-
+    }
 
     const int chs = buffer.getNumChannels();
 
@@ -875,9 +906,14 @@ void PitchCorrectorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
 
     if (chs <= 0 || N <= 0) return;
 
+    // === Input Global FX chain (63C-15) ===
+    // First stage of the graph: shapes the signal the tuner detects and corrects.
+    applyFxChain (fxChainInput, buffer);
 
+    runPitchDetection (buffer);
 
-    // Snapshot dry-input mono mix (per sample) before any in-place processing.
+    // Snapshot voice-input mono mix (post input chain, per sample) before any
+    // further in-place processing.
     // Feeds the sub vocoder as its modulator; it handles its own envelope tracking.
     if ((int) monoInputScratch.size() < N)
         monoInputScratch.assign ((size_t) N, 0.0f);
@@ -1024,14 +1060,14 @@ void PitchCorrectorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     pinkNoise.setTargetMix (pinkMix);
     pinkNoise.addTo (buffer, sibilanceScratch.data());
 
-    // === Effect Wheel chain: ordered slot effects on the corrected voice ===
-    for (int s = 0; s < VocalFx::EffectChain::kNumSlots; ++s)
-    {
-        effectChain.setSlotEffect (s, VocalFx::EffectChain::clampType (
-            (VocalFx::EffectType) juce::roundToInt (fxTypeParams[(size_t) s]->load())));
-        effectChain.setSlotAmount (s, fxAmountParams[(size_t) s]->load());
-    }
-    effectChain.process (buffer);
+    // === Voice FX chain: ordered slot effects on the corrected lead voice ===
+    applyFxChain (fxChainVoice, buffer);
+
+    // === Harmony voices summing point (63C-13 renders + sums here) ===
+    mixHarmonyVoices (buffer);
+
+    // === Output Global FX chain: polish on the summed voices ===
+    applyFxChain (fxChainOutput, buffer);
 
     // Master output volume + formant-loudness compensation.
     // Formant shifts redistribute spectral envelope energy: up-shift gets louder, down-shift quieter.

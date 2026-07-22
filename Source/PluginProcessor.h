@@ -3,12 +3,16 @@
     -----------------
     Top-level audio processor for Sol Voice Tuner (PitchCorrectorVST lineage).
 
-    Signal flow:
-        input -> pitch detect (mono) -> snap to scale or held MIDI notes
-        -> ratio toward snapped pitch (Robotic = retune speed + humanize + throat formant mix)
-        -> optional pitch-bend (fader x range + MIDI wheel) on transpose
-        -> Signalsmith Stretch (transpose + independent formant)
-        -> bypass
+    Signal flow (63C-15 audio graph):
+        input -> Input Global FX chain
+        -> lead voice: pitch detect (mono) -> snap to scale or held MIDI notes
+           -> ratio toward snapped pitch (Robotic = retune speed + humanize + throat formant mix)
+           -> optional pitch-bend (fader x range + MIDI wheel) on transpose
+           -> Signalsmith Stretch (transpose + independent formant)
+           -> Voice FX chain
+        -> harmony voices summing point (stub until 63C-13)
+        -> Output Global FX chain -> master volume
+        (bypass skips everything after detection)
 
     Real-time: no allocations on the audio thread after prepareToPlay().
 */
@@ -90,9 +94,49 @@ public:
     static constexpr const char* PID_BEND_RANGE  = "bendRange";
     static constexpr const char* PID_VOLUME      = "volumeDb";
 
-    /** Effect Wheel chain (63C-7): per-slot type + Amount parameter IDs. */
-    static juce::String fxTypeParamId (int slot)   { return "fxType"   + juce::String (slot + 1); }
-    static juce::String fxAmountParamId (int slot) { return "fxAmount" + juce::String (slot + 1); }
+    /** The three effect chains of the v3 audio graph (63C-15). Order is fixed:
+        input global -> lead voice -> output global. */
+    enum FxChainId
+    {
+        fxChainInput = 0,
+        fxChainVoice,
+        fxChainOutput,
+        numFxChains
+    };
+
+    /** Param-ID prefix per chain ("fxIn" / "fxVoice" / "fxOut"). */
+    static const char* fxChainPrefix (int chain) noexcept
+    {
+        switch (chain)
+        {
+            case fxChainInput:  return "fxIn";
+            case fxChainVoice:  return "fxVoice";
+            case fxChainOutput: return "fxOut";
+            default:            return "fx";
+        }
+    }
+
+    /** Human-readable chain name for parameter display. */
+    static const char* fxChainDisplayName (int chain) noexcept
+    {
+        switch (chain)
+        {
+            case fxChainInput:  return "Input";
+            case fxChainVoice:  return "Voice";
+            case fxChainOutput: return "Output";
+            default:            return "FX";
+        }
+    }
+
+    /** Per-chain, per-slot type + Amount parameter IDs (e.g. "fxInType1"). */
+    static juce::String fxTypeParamId (int chain, int slot)
+    {
+        return fxChainPrefix (chain) + juce::String ("Type") + juce::String (slot + 1);
+    }
+    static juce::String fxAmountParamId (int chain, int slot)
+    {
+        return fxChainPrefix (chain) + juce::String ("Amount") + juce::String (slot + 1);
+    }
 
 private:
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -104,12 +148,14 @@ private:
     VocalFx::DeEsser         deEsser;
     VocalFx::PinkNoiseSource pinkNoise;
 
-    VocalFx::EffectChain effectChain;
+    // input global / lead voice / output global (indexed by FxChainId).
+    std::array<VocalFx::EffectChain, numFxChains> fxChains;
 
-    // Cached raw-value pointers for the chain's 12 params (avoids per-block
+    // Cached raw-value pointers for the chains' 36 params (avoids per-block
     // String construction on the audio thread).
-    std::array<std::atomic<float>*, VocalFx::EffectChain::kNumSlots> fxTypeParams   {};
-    std::array<std::atomic<float>*, VocalFx::EffectChain::kNumSlots> fxAmountParams {};
+    using ChainParamPtrs = std::array<std::atomic<float>*, VocalFx::EffectChain::kNumSlots>;
+    std::array<ChainParamPtrs, numFxChains> fxTypeParams   {};
+    std::array<ChainParamPtrs, numFxChains> fxAmountParams {};
 
     // Per-sample mono-summed dry input — modulator for the sub vocoder.
     std::vector<float> monoInputScratch;
@@ -154,6 +200,14 @@ private:
     std::atomic<float> midiPitchBendNorm { 0.0f };
 
     void runPitchDetection (const juce::AudioBuffer<float>& buffer);
+
+    /** Forwards one chain's APVTS params to its EffectChain and processes the buffer. */
+    void applyFxChain (int chain, juce::AudioBuffer<float>& buffer) noexcept;
+
+    /** 63C-13 hook: harmony voices will render and sum onto the lead voice here.
+        The summing point's place in the graph (post voice chain, pre output
+        chain) is fixed now so 63C-13 slots in without another restructure. */
+    void mixHarmonyVoices (juce::AudioBuffer<float>& buffer) noexcept;
 
     void updateMidiNotes (const juce::MidiBuffer& midi);
 

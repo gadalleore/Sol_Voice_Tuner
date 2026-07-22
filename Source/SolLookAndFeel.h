@@ -1,11 +1,10 @@
 /*
     SolLookAndFeel.h
     ----------------
-    Official Shades brand LookAndFeel for "Sol Voice Tuner".
+    Official 63C brand LookAndFeel for "Sol Voice Tuner".
 
-    The palette and knob/combo/toggle styling are deliberately kept in sync
-    with the Space Dust synth (`SpaceDustLookAndFeel`) so every Shades
-    plugin shares one cohesive identity:
+    Interim palette (cosmic navy, inherited from the former Shades branding);
+    to be replaced by the 63C sun-white frutiger-aero theme (Linear 63C-10):
 
         background  : deep navy 0xff0a0a1f
         panels      : 0xff1a1a2f / 0xff1a1a30

@@ -73,16 +73,16 @@ endif()
 # Plugin definition
 # ----------------------------------------------------------------------------
 juce_add_plugin(SolVoiceTuner
-    COMPANY_NAME              "Shades"
-    PLUGIN_MANUFACTURER       "Shades"
-    BUNDLE_ID                 "com.shades.solvoicetuner"
+    COMPANY_NAME              "63C"
+    PLUGIN_MANUFACTURER       "63C"
+    BUNDLE_ID                 "com.63c.solvoicetuner"
     IS_SYNTH                  FALSE
     NEEDS_MIDI_INPUT          TRUE     # MIDI for target-note control
     NEEDS_MIDI_OUTPUT         FALSE
     IS_MIDI_EFFECT            FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     COPY_PLUGIN_AFTER_BUILD   FALSE
-    PLUGIN_MANUFACTURER_CODE  Shds
+    PLUGIN_MANUFACTURER_CODE  S63c
     PLUGIN_CODE               Svtn
     FORMATS                   VST3 Standalone
     PLUGIN_NAME               "Sol Voice Tuner"

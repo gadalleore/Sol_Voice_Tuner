@@ -1,6 +1,6 @@
 # Sol Voice Tuner
 
-**Shades · Sol Voice Tuner**
+**63C · Sol Voice Tuner**
 
 A modern, real-time **AutoTune-style pitch corrector** built in JUCE C++.
 Detects vocal pitch with the YIN algorithm, snaps it to a chosen
@@ -10,9 +10,8 @@ with the high-quality, header-only
 engine — featuring formant preservation, retune-speed smoothing,
 and a "Robot Mode" for hard T-Pain snapping.
 
-Visually unified with the rest of the **Shades** plugin family
-(Space Dust, Space Dust II, …) — cosmic navy background with bright
-cyan accents.
+A **63C** product. (Formerly branded Shades; a sun-white frutiger-aero
+UI rebuild is in progress — see the Linear project for the roadmap.)
 
 Builds as **VST3** and a **Standalone** app (Windows). macOS AU support
 is wired in CMake but currently disabled.
@@ -53,7 +52,7 @@ Sol Voice Tuner/
    ├─ PitchDetector.h/.cpp     # YIN pitch detector (real-time, lock-free)
    ├─ PitchShifter.h/.cpp      # Wrapper around Signalsmith Stretch
    ├─ ScaleQuantizer.h         # Hz <-> MIDI helpers + scale snapping
-   └─ SolLookAndFeel.h         # Shades cosmic-cyan brand theme
+   └─ SolLookAndFeel.h         # 63C brand theme
 ```
 
 ---
@@ -75,11 +74,11 @@ cd "Sol Voice Tuner"
 This script will:
 1. Run `cmake` (auto-fetches JUCE + Signalsmith Stretch on first run).
 2. Build the **Release** VST3 incrementally.
-3. Copy `Sol Voice Tuner.vst3` into the **`Shades`** subfolder under
+3. Copy `Sol Voice Tuner.vst3` into the **`63C`** subfolder under
    every detected VST3 root:
-   - `C:\Program Files\Common Files\VST3\Shades\`
-   - `~\Documents\Ableton\User Library\VST3\Shades\`
-   - `~\Documents\VST3\Shades\` and `~\VST3\Shades\` (if present).
+   - `C:\Program Files\Common Files\VST3\63C\`
+   - `~\Documents\Ableton\User Library\VST3\63C\`
+   - `~\Documents\VST3\63C\` and `~\VST3\63C\` (if present).
 4. Launch (or focus) Ableton Live.
 
 Useful flags:

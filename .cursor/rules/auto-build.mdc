@@ -16,7 +16,7 @@ After any code generation or file changes in the Sol Voice Tuner project:
      in `external/`, falls back to FetchContent if missing)
    - Auto-detect the installed Visual Studio (2026 / 2022 / 2019) via vswhere
    - Incrementally rebuild the Release VST3 (`SolVoiceTuner` target)
-   - Copy `Sol Voice Tuner.vst3` into the "Shades" subfolder of every
+   - Copy `Sol Voice Tuner.vst3` into the "63C" subfolder of every
      known VST3 root (Program Files VST3, Ableton User Library VST3, etc.)
    - Remove any stale legacy VST3s from previous builds (e.g. PitchCorrectorVST.vst3)
    - Wait 2 seconds for the filesystem to settle
@@ -32,7 +32,7 @@ After any code generation or file changes in the Sol Voice Tuner project:
    cd <project-root>
    cmake -S . -B build -G "Visual Studio 18 2026" -A x64
    cmake --build build --config Release --target SolVoiceTuner_VST3
-   $shades = "$env:USERPROFILE\Documents\Ableton\User Library\VST3\Shades"
+   $shades = "$env:USERPROFILE\Documents\Ableton\User Library\VST3\63C"
    if (-not (Test-Path $shades)) { New-Item -ItemType Directory -Path $shades -Force | Out-Null }
    $src = "build\SolVoiceTuner_artefacts\Release\VST3\Sol Voice Tuner.vst3"
    if (Test-Path $src) {
@@ -45,7 +45,7 @@ After any code generation or file changes in the Sol Voice Tuner project:
    code, and retry the build automatically.
 
 3. Brand identity:
-   - Company: Shades
+   - Company: 63C
    - Plugin colors: cosmic dark navy (#0a0a1f) with bright cyan accents
      (#00d4ff arc, #00b4ff glow). See `Source/SolLookAndFeel.h` for the
      full palette -- match this exactly when adding new UI components.

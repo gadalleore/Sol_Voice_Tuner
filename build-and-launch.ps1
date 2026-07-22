@@ -1,6 +1,6 @@
 #==============================================================================
 # PitchCorrectorVST - Build and Launch Script
-# Incremental build, copies VST3 into the "Shades" VST folder,
+# Incremental build, copies VST3 into the "63C" VST folder,
 # launches/focuses Ableton Live.
 #==============================================================================
 
@@ -18,7 +18,7 @@ Set-Location $projectRoot
 
 $Plugin     = "SolVoiceTuner"          # CMake target (no spaces)
 $ProductName = "Sol Voice Tuner"        # PRODUCT_NAME -> .vst3 filename
-$ShadesName = "Shades"                  # company sub-folder under each VST3 root
+$ShadesName = "63C"                     # company sub-folder under each VST3 root
 $Vst3Name   = "$ProductName.vst3"
 
 # Older builds shipped under these names; clean them up so DAWs don't see ghosts
@@ -94,7 +94,7 @@ if (-not (Test-Path $source)) {
     exit 1
 }
 
-# ── Step 4: Copy VST3 into the "Shades" sub-folder of every known root ────
+# ── Step 4: Copy VST3 into the "63C" sub-folder of every known root ───────
 $vst3Roots = @(
     "C:\Program Files\Common Files\VST3",
     "$env:USERPROFILE\Documents\Ableton\User Library\VST3",

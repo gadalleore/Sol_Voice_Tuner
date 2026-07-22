@@ -1,11 +1,15 @@
 /*
     EffectsWindowPage.h
     -------------------
-    The shared Effects window (63C-6 placeholder for 63C-8/63C-11): one page
-    template bound to any of the processor's FX chains (input global, output
-    global, later per-voice). Six slot rows with a type selector and Amount
-    knob, attached straight to the chain's APVTS parameters — functional
-    stand-in until the pull-out wheel UI (63C-11) replaces the rows.
+    The shared Effects window (63C-11): a WheelComponent bound to one of the
+    processor's FX chains (input global, output global, later per-voice). The
+    palette in the wheel's hub lists every available effect type — read
+    dynamically from the chain's APVTS choice parameter, so new effects
+    (63C-8) appear automatically. Pulling an effect onto the rim writes the
+    slot's type parameter; clicking a placed effect drills into its detail
+    page. The 6-slot parameter model is the backing store; the wheel is the
+    view, so host automation and DAW-restored state show up too (repaint
+    timer).
 */
 
 #pragma once
@@ -13,66 +17,92 @@
 #include <JuceHeader.h>
 
 #include "EffectChain.h"
+#include "EffectDetailPage.h"
 #include "PluginProcessor.h"
 #include "SolPage.h"
+#include "WheelComponent.h"
 
-class EffectsWindowPage final : public SolPage
+class EffectsWindowPage final : public SolPage,
+                                private juce::Timer
 {
 public:
-    EffectsWindowPage (juce::AudioProcessorValueTreeState& apvts,
-                       int chainIndex,
+    EffectsWindowPage (juce::AudioProcessorValueTreeState& apvtsIn,
+                       int chainIndexIn,
                        const juce::String& titleText,
                        PageStack& stackToUse)
-        : SolPage (stackToUse, titleText)
+        : SolPage (stackToUse, titleText),
+          apvts (apvtsIn),
+          chainIndex (chainIndexIn),
+          detailPage (apvtsIn, stackToUse)
     {
-        for (int slot = 0; slot < VocalFx::EffectChain::kNumSlots; ++slot)
+        wheel.setNumSlots (VocalFx::EffectChain::kNumSlots);
+        wheel.emptyTypeId     = (int) VocalFx::EffectType::Empty;
+        wheel.allowDuplicates = true;
+        wheel.itemsDraggable  = true;
+
+        // Palette from the slot-1 choice parameter (skip index 0 = Empty) so
+        // future effect types appear without touching this page.
+        std::vector<WheelComponent::Item> items;
+        if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (
+                PitchCorrectorAudioProcessor::fxTypeParamId (chainIndex, 0))))
         {
-            auto& row = rows[(size_t) slot];
-
-            row.label.setText ("Slot " + juce::String (slot + 1), juce::dontSendNotification);
-            row.label.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)));
-            row.label.setColour (juce::Label::textColourId, juce::Colour (SolLookAndFeel::kLabel));
-            addAndMakeVisible (row.label);
-
-            for (int t = 0; t < (int) VocalFx::EffectType::NumTypes; ++t)
-                row.typeBox.addItem (VocalFx::effectTypeName ((VocalFx::EffectType) t), t + 1);
-            addAndMakeVisible (row.typeBox);
-            row.typeAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
-                apvts, PitchCorrectorAudioProcessor::fxTypeParamId (chainIndex, slot), row.typeBox);
-
-            row.amount.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-            row.amount.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-            addAndMakeVisible (row.amount);
-            row.amountAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-                apvts, PitchCorrectorAudioProcessor::fxAmountParamId (chainIndex, slot), row.amount);
+            for (int i = 1; i < choice->choices.size(); ++i)
+                items.push_back ({ i, choice->choices[i] });
         }
+        wheel.setPalette (std::move (items));
+
+        wheel.getSlotType   = [this] (int slot)         { return typeIndex (slot); };
+        wheel.setSlotType   = [this] (int slot, int t)  { setTypeIndex (slot, t); };
+        wheel.onSlotClicked = [this] (int slot)         { openDetail (slot); };
+        addAndMakeVisible (wheel);
+
+        startTimerHz (15); // reflect host automation / preset changes
     }
 
 private:
     void layoutContent (juce::Rectangle<int> area) override
     {
-        const int rowH = juce::jmax (34, area.getHeight() / VocalFx::EffectChain::kNumSlots);
+        wheel.setBounds (area);
+    }
 
-        for (auto& row : rows)
+    void timerCallback() override { wheel.repaint(); }
+
+    int typeIndex (int slot) const
+    {
+        if (auto* v = apvts.getRawParameterValue (
+                PitchCorrectorAudioProcessor::fxTypeParamId (chainIndex, slot)))
+            return (int) std::lround (v->load());
+        return (int) VocalFx::EffectType::Empty;
+    }
+
+    void setTypeIndex (int slot, int type)
+    {
+        if (auto* p = apvts.getParameter (
+                PitchCorrectorAudioProcessor::fxTypeParamId (chainIndex, slot)))
         {
-            auto r = area.removeFromTop (rowH).reduced (0, 4);
-            row.label  .setBounds (r.removeFromLeft (64));
-            row.amount .setBounds (r.removeFromRight (juce::jmin (r.getHeight() + 20, 60)));
-            r.removeFromRight (8);
-            row.typeBox.setBounds (r.withSizeKeepingCentre (juce::jmin (220, r.getWidth()), 26));
+            p->beginChangeGesture();
+            p->setValueNotifyingHost (p->convertTo0to1 ((float) type));
+            p->endChangeGesture();
         }
     }
 
-    struct SlotRow
+    void openDetail (int slot)
     {
-        juce::Label    label;
-        juce::ComboBox typeBox;
-        juce::Slider   amount;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> typeAtt;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>   amountAtt;
-    };
+        const int type = typeIndex (slot);
+        if (type == (int) VocalFx::EffectType::Empty)
+            return;
 
-    std::array<SlotRow, (size_t) VocalFx::EffectChain::kNumSlots> rows;
+        detailPage.rebind (PitchCorrectorAudioProcessor::fxAmountParamId (chainIndex, slot),
+                           VocalFx::effectTypeName ((VocalFx::EffectType) type),
+                           slot);
+        stack.push (detailPage);
+    }
+
+    juce::AudioProcessorValueTreeState& apvts;
+    const int chainIndex;
+
+    WheelComponent   wheel;
+    EffectDetailPage detailPage;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EffectsWindowPage)
 };

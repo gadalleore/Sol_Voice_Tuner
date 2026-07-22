@@ -106,6 +106,8 @@ target_sources(SolVoiceTuner PRIVATE
     Source/PageStack.h
     Source/SolPage.h
     Source/HomePage.h
+    Source/WheelComponent.h
+    Source/EffectDetailPage.h
     Source/EffectsWindowPage.h
     Source/HarmoniesWindowPage.h
     Source/TuningWindowPage.h

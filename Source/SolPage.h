@@ -62,6 +62,9 @@ protected:
     /** Subclasses place their controls inside the given content area. */
     virtual void layoutContent (juce::Rectangle<int> area) = 0;
 
+    /** For pages that rebind to different content (e.g. EffectDetailPage). */
+    void setTitle (const juce::String& t) { title.setText (t, juce::dontSendNotification); }
+
     PageStack& stack;
 
 private:

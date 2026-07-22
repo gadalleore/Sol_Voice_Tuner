@@ -1,139 +1,52 @@
 /*
     PluginEditor.h
     --------------
-    Sol Voice Tuner UI: title header, Pitch In / Out, Robotic + Formant,
-    bottom strip: scale / MIDI + bend range beside vertical pitch-bend fader.
+    Thin host for the Xbox-style paging UI (63C-6): owns the LookAndFeel, the
+    PageStack, and one instance of every window. Navigation:
+
+        Home ─┬─ Input Global Effects   (EffectsWindowPage, input chain)
+              ├─ Harmonies ── Tuning    (legacy tuner UI lives here for now)
+              └─ Output Global Effects  (EffectsWindowPage, output chain)
 */
 
 #pragma once
 
-#include <array>
-
 #include <JuceHeader.h>
+
 #include "PluginProcessor.h"
 #include "SolLookAndFeel.h"
-#include "OscilloscopeComponent.h"
+#include "PageStack.h"
+#include "HomePage.h"
+#include "EffectsWindowPage.h"
+#include "HarmoniesWindowPage.h"
+#include "TuningWindowPage.h"
 
-/** Pitch-bend fader: after releasing the mouse, returns to centre after a short delay (hardware wheel behaviour). */
-class PitchBendFaderSlider final : public juce::Slider,
-                                   private juce::Timer
-{
-public:
-    static constexpr int snapDelayMs = 100;
-
-    explicit PitchBendFaderSlider (PitchCorrectorAudioProcessor& p) noexcept : processor (p) {}
-
-    ~PitchBendFaderSlider() override { stopTimer(); }
-
-private:
-    PitchCorrectorAudioProcessor& processor;
-
-    void mouseDown (const juce::MouseEvent& e) override
-    {
-        stopTimer();
-        juce::Slider::mouseDown (e);
-    }
-
-    void mouseUp (const juce::MouseEvent& e) override
-    {
-        juce::Slider::mouseUp (e);
-
-        if (! e.source.isMouse())
-            return;
-
-        if (e.mods.isPopupMenu())
-            return;
-
-        if (juce::approximatelyEqual (getValue(), 0.0))
-            return;
-
-        startTimer (snapDelayMs);
-    }
-
-    void timerCallback() override
-    {
-        stopTimer();
-
-        if (juce::approximatelyEqual (getValue(), 0.0))
-            return;
-
-        if (auto* param = processor.getAPVTS().getParameter (PitchCorrectorAudioProcessor::PID_PITCH_BEND))
-            if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (param))
-            {
-                ranged->beginChangeGesture();
-                ranged->setValueNotifyingHost (ranged->convertTo0to1 (0.0f));
-                ranged->endChangeGesture();
-            }
-    }
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PitchBendFaderSlider)
-};
-
-class PitchCorrectorAudioProcessorEditor
-    : public juce::AudioProcessorEditor,
-      private juce::Timer
+class PitchCorrectorAudioProcessorEditor final : public juce::AudioProcessorEditor
 {
 public:
     explicit PitchCorrectorAudioProcessorEditor (PitchCorrectorAudioProcessor&);
     ~PitchCorrectorAudioProcessorEditor() override;
 
-    void paint  (juce::Graphics&) override;
-    void resized()                override;
+    void paint (juce::Graphics&) override;
+    void resized() override;
 
 private:
-    void timerCallback() override;
-
-    void stylePitchReadout (juce::Label& title, juce::Label& value, const juce::String& titleText);
-    void refreshKeyNoteSelection();
-
     PitchCorrectorAudioProcessor& processorRef;
     SolLookAndFeel lookAndFeel;
 
-    juce::Label    productTitle;
-    juce::ToggleButton bypassBtn { "Bypass" };
+    // Declared before the pages: pages remove themselves from the stack's
+    // child list on destruction, so the stack must outlive them.
+    PageStack pageStack;
 
-    juce::Label pitchInTitle,  pitchInValue;
-    juce::Label pitchOutTitle, pitchOutValue;
-
-    juce::Slider roboticKnob  { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
-    juce::Slider subKnob      { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
-    juce::Slider formantKnob  { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
-    juce::Label  roboticLbl, subLbl, formantLbl;
-
-    // Centre-panel tabs: 0 = Knobs, 1 = Scope.
-    juce::TextButton    tabKnobsBtn { "Knobs" };
-    juce::TextButton    tabScopeBtn { "Scope" };
-    OscilloscopeComponent oscilloscope;
-    int                 currentCentreTab { 0 };
-    void                setCentreTab (int t);
-
-    PitchBendFaderSlider pitchBendSlider { processorRef };
-    juce::Label  pitchBendLbl;
-    juce::Slider bendRangeKnob { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
-    juce::Label  bendRangeLbl;
-    juce::Slider volumeSlider  { juce::Slider::LinearVertical, juce::Slider::NoTextBox };
-    juce::Label  volumeLbl;
-
-    juce::ComboBox scaleBox;
-    juce::Label    scaleLbl;
-
-    std::array<juce::TextButton, 12> keyNoteBtns {};
-    juce::Label     keyLbl;
-
-    juce::ToggleButton midiFollowBtn { "MIDI Follow" };
-    juce::Label     midiStatusLbl;
-
-    using SAPVTS = juce::AudioProcessorValueTreeState;
-    using SAtt   = SAPVTS::SliderAttachment;
-    using BAtt   = SAPVTS::ButtonAttachment;
-    using CAtt   = SAPVTS::ComboBoxAttachment;
-
-    std::unique_ptr<SAtt> roboticAtt, subAtt, formantAtt, bendAtt, bendRangeAtt, volumeAtt;
-    std::unique_ptr<BAtt> bypassAtt, midiFollowAtt;
-    std::unique_ptr<CAtt> scaleAtt;
-    std::unique_ptr<juce::ParameterAttachment> keyRootAtt;
-
-    juce::Rectangle<int> pitchInPanelBounds, pitchOutPanelBounds;
+    HomePage            homePage;
+    EffectsWindowPage   inputFxPage  { processorRef.getAPVTS(),
+                                       PitchCorrectorAudioProcessor::fxChainInput,
+                                       "Input Global Effects", pageStack };
+    EffectsWindowPage   outputFxPage { processorRef.getAPVTS(),
+                                       PitchCorrectorAudioProcessor::fxChainOutput,
+                                       "Output Global Effects", pageStack };
+    HarmoniesWindowPage harmoniesPage { pageStack };
+    TuningWindowPage    tuningPage    { processorRef, pageStack };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PitchCorrectorAudioProcessorEditor)
 };

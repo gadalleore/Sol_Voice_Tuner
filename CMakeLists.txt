@@ -103,6 +103,14 @@ target_sources(SolVoiceTuner PRIVATE
     Source/PluginProcessor.h
     Source/PluginEditor.cpp
     Source/PluginEditor.h
+    Source/PageStack.h
+    Source/SolPage.h
+    Source/HomePage.h
+    Source/EffectsWindowPage.h
+    Source/HarmoniesWindowPage.h
+    Source/TuningWindowPage.h
+    Source/LegacyTunerPage.cpp
+    Source/LegacyTunerPage.h
     Source/PitchDetector.cpp
     Source/PitchDetector.h
     Source/ScaleQuantizer.h

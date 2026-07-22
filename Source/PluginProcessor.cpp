@@ -115,6 +115,15 @@ PitchCorrectorAudioProcessor::createParameterLayout()
 
 
 
+    // Sub carrier amount (same 0–100 % display behaviour as Robotic).
+    params.push_back (std::make_unique<APF> (juce::ParameterID { PID_SUB, 1 },
+
+                                             "Sub",
+
+                                             Range (0.0f, 1.0f, 0.01f), 0.0f, roboticAttrs));
+
+
+
     params.push_back (std::make_unique<APF> (juce::ParameterID { PID_FORMANT, 1 },
 
                                              "Formant",
@@ -247,6 +256,23 @@ void PitchCorrectorAudioProcessor::prepareToPlay (double sampleRate, int samples
 
     shifter.setFormantSemitones (apvts.getRawParameterValue (PID_FORMANT)->load());
 
+    subVocoder.prepare (sampleRate);
+    deEsser   .prepare (sampleRate, ch);
+    pinkNoise .prepare (sampleRate);
+
+    // Dry-input mono mix (sub vocoder modulator) + sibilance presence signal.
+    monoInputScratch.assign ((size_t) juce::jmax (samplesPerBlock, 1), 0.0f);
+    sibilanceScratch.assign ((size_t) juce::jmax (samplesPerBlock, 1), 0.0f);
+
+    // Double-buffered output snapshot for the oscilloscope tab.
+    for (auto& b : scopeBuffers)
+    {
+        b.setSize (2, juce::jmax (samplesPerBlock, 1), false, true, true);
+        b.clear();
+    }
+    scopeReadIndex.store (0);
+    scopeValidSamples.store (0);
+
 
 
     smoothedRatio = 1.0f;
@@ -282,6 +308,10 @@ void PitchCorrectorAudioProcessor::releaseResources()
 {
 
     shifter.reset();
+
+    subVocoder.reset();
+    deEsser   .reset();
+    pinkNoise .reset();
 
 }
 
@@ -789,6 +819,8 @@ void PitchCorrectorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
 
     const float robotic   = apvts.getRawParameterValue (PID_ROBOTIC)->load();
 
+    const float sub       = apvts.getRawParameterValue (PID_SUB)->load();
+
     const float formantSt = apvts.getRawParameterValue (PID_FORMANT)->load();
 
     const float bendParam = apvts.getRawParameterValue (PID_PITCH_BEND)->load();
@@ -814,6 +846,24 @@ void PitchCorrectorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     const int N   = buffer.getNumSamples();
 
     if (chs <= 0 || N <= 0) return;
+
+
+
+    // Snapshot dry-input mono mix (per sample) before any in-place processing.
+    // Feeds the sub vocoder as its modulator; it handles its own envelope tracking.
+    if ((int) monoInputScratch.size() < N)
+        monoInputScratch.assign ((size_t) N, 0.0f);
+    if ((int) sibilanceScratch.size() < N)
+        sibilanceScratch.assign ((size_t) N, 0.0f);
+
+    const float invChs = 1.0f / (float) juce::jmax (chs, 1);
+    for (int i = 0; i < N; ++i)
+    {
+        float sum = 0.0f;
+        for (int c = 0; c < chs; ++c)
+            sum += buffer.getReadPointer (c)[i];
+        monoInputScratch[(size_t) i] = sum * invChs;
+    }
 
 
 
@@ -922,6 +972,30 @@ void PitchCorrectorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         shifter.process (buffer);
     }
 
+    // === Sibilance management (always on; depth grows with Robotic) ===
+    // Publishes a per-sample sibilance-presence signal that gates the pink noise.
+    deEsser.setRobotic (robotic);
+    deEsser.process (buffer, sibilanceScratch.data());
+
+    // === Band-limited saw sub carrier — 3 octaves below the vocal output ===
+    // Pitch tracks (detectedHz*ratio) / 8 so the sub sits three octaves under
+    // the vocal output. Amplitude = Sub knob × dry-input envelope, capped at
+    // 0.25 so even full-Sub stays a polite underpinning.
+    constexpr float kSubMaxMix = 0.25f;
+    const float vocalHz = voiced ? juce::jlimit (20.0f, 4000.0f, detectedHz * ratio) : 0.0f;
+    const float sawHz   = vocalHz * 0.125f;
+    subVocoder.setFrequency (sawHz);
+    subVocoder.setTargetMix (voiced ? sub * kSubMaxMix : 0.0f);
+    subVocoder.addTo (buffer, monoInputScratch.data());
+
+    // === Pink-noise sibilance smoothing ===
+    // Gated per-sample by the de-esser's sibilance envelope: only sounds when
+    // sibilance is being cut. Stays subtle even at max Robotic — it's a
+    // smoother, not a layer.
+    const float pinkMix = juce::jmap (robotic, 0.0f, 1.0f, 0.01f, 0.045f);
+    pinkNoise.setTargetMix (pinkMix);
+    pinkNoise.addTo (buffer, sibilanceScratch.data());
+
     // Master output volume + formant-loudness compensation.
     // Formant shifts redistribute spectral envelope energy: up-shift gets louder, down-shift quieter.
     // Counter that with ~0.5 dB per semitone so amplitude stays flat across the Formant knob.
@@ -929,6 +1003,26 @@ void PitchCorrectorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     const float outGain = juce::Decibels::decibelsToGain (volumeDb + formantMakeupDb, -60.0f);
     if (! juce::approximatelyEqual (outGain, 1.0f))
         buffer.applyGain (outGain);
+
+    // === Publish post-processing snapshot to the oscilloscope (lock-free) ===
+    {
+        const int readIdx  = scopeReadIndex.load (std::memory_order_relaxed);
+        const int writeIdx = 1 - readIdx;
+        auto& dest = scopeBuffers[(size_t) writeIdx];
+
+        if (dest.getNumSamples() < N)
+            dest.setSize (juce::jmax (2, chs), N, false, true, true);
+
+        const int copyCh = juce::jmin (dest.getNumChannels(), chs);
+        for (int c = 0; c < copyCh; ++c)
+            dest.copyFrom (c, 0, buffer, c, 0, N);
+        // Mirror mono into the second channel so the editor always sees L/R.
+        if (chs == 1 && dest.getNumChannels() >= 2)
+            dest.copyFrom (1, 0, buffer, 0, 0, N);
+
+        scopeValidSamples.store (N, std::memory_order_release);
+        scopeReadIndex.store    (writeIdx, std::memory_order_release);
+    }
 }
 
 

@@ -12,6 +12,7 @@
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 #include "SolLookAndFeel.h"
+#include "OscilloscopeComponent.h"
 
 /** Pitch-bend fader: after releasing the mouse, returns to centre after a short delay (hardware wheel behaviour). */
 class PitchBendFaderSlider final : public juce::Slider,
@@ -95,8 +96,16 @@ private:
     juce::Label pitchOutTitle, pitchOutValue;
 
     juce::Slider roboticKnob  { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+    juce::Slider subKnob      { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
     juce::Slider formantKnob  { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
-    juce::Label  roboticLbl, formantLbl;
+    juce::Label  roboticLbl, subLbl, formantLbl;
+
+    // Centre-panel tabs: 0 = Knobs, 1 = Scope.
+    juce::TextButton    tabKnobsBtn { "Knobs" };
+    juce::TextButton    tabScopeBtn { "Scope" };
+    OscilloscopeComponent oscilloscope;
+    int                 currentCentreTab { 0 };
+    void                setCentreTab (int t);
 
     PitchBendFaderSlider pitchBendSlider { processorRef };
     juce::Label  pitchBendLbl;
@@ -119,7 +128,7 @@ private:
     using BAtt   = SAPVTS::ButtonAttachment;
     using CAtt   = SAPVTS::ComboBoxAttachment;
 
-    std::unique_ptr<SAtt> roboticAtt, formantAtt, bendAtt, bendRangeAtt, volumeAtt;
+    std::unique_ptr<SAtt> roboticAtt, subAtt, formantAtt, bendAtt, bendRangeAtt, volumeAtt;
     std::unique_ptr<BAtt> bypassAtt, midiFollowAtt;
     std::unique_ptr<CAtt> scaleAtt;
     std::unique_ptr<juce::ParameterAttachment> keyRootAtt;

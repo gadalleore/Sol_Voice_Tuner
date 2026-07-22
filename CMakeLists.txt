@@ -109,6 +109,9 @@ target_sources(SolVoiceTuner PRIVATE
     Source/PitchShifter.cpp
     Source/PitchShifter.h
     Source/SolLookAndFeel.h
+    Source/VocalFx.h
+    Source/OscilloscopeComponent.cpp
+    Source/OscilloscopeComponent.h
 )
 
 # ----------------------------------------------------------------------------

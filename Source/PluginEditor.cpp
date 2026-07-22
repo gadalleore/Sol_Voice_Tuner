@@ -92,6 +92,28 @@ PitchCorrectorAudioProcessorEditor::PitchCorrectorAudioProcessorEditor (
     roboticAtt = std::make_unique<SAtt> (processorRef.getAPVTS(),
                                           PitchCorrectorAudioProcessor::PID_ROBOTIC, roboticKnob);
 
+    subKnob.setRange (0.0, 1.0, 0.01);
+    subKnob.setTextValueSuffix (" %");
+    subKnob.textFromValueFunction = [] (double v)
+    {
+        return juce::String (juce::roundToInt (juce::jlimit (0.0, 1.0, v) * 100.0));
+    };
+    subKnob.valueFromTextFunction = [] (const juce::String& t)
+    {
+        auto s = t.trim().removeCharacters ("%").trim();
+        return s.getDoubleValue() / 100.0;
+    };
+    subKnob.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    subKnob.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 88, 22);
+    addAndMakeVisible (subKnob);
+    subLbl.setText ("Sub", juce::dontSendNotification);
+    subLbl.setJustificationType (juce::Justification::centred);
+    subLbl.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)));
+    subLbl.setColour (juce::Label::textColourId, juce::Colour (SolLookAndFeel::kLabel));
+    addAndMakeVisible (subLbl);
+    subAtt = std::make_unique<SAtt> (processorRef.getAPVTS(),
+                                      PitchCorrectorAudioProcessor::PID_SUB, subKnob);
+
     formantKnob.setRange (-12.0, 12.0, 0.01);
     formantKnob.setTextValueSuffix (" st");
     formantKnob.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
@@ -104,6 +126,23 @@ PitchCorrectorAudioProcessorEditor::PitchCorrectorAudioProcessorEditor (
     addAndMakeVisible (formantLbl);
     formantAtt = std::make_unique<SAtt> (processorRef.getAPVTS(),
                                           PitchCorrectorAudioProcessor::PID_FORMANT, formantKnob);
+
+    // Centre-panel tab strip: Knobs | Scope
+    auto setupTabBtn = [this] (juce::TextButton& b, int index)
+    {
+        b.setClickingTogglesState (false);
+        b.setColour (juce::TextButton::buttonColourId,   juce::Colour (SolLookAndFeel::kPanel));
+        b.setColour (juce::TextButton::buttonOnColourId, juce::Colour (SolLookAndFeel::kAccentToggle));
+        b.setColour (juce::TextButton::textColourOffId,  juce::Colour (SolLookAndFeel::kLabelAlt));
+        b.setColour (juce::TextButton::textColourOnId,   juce::Colour (SolLookAndFeel::kTitleHi));
+        b.onClick = [this, index] { setCentreTab (index); };
+        addAndMakeVisible (b);
+    };
+    setupTabBtn (tabKnobsBtn, 0);
+    setupTabBtn (tabScopeBtn, 1);
+
+    addAndMakeVisible (oscilloscope);
+    setCentreTab (0);
 
     pitchBendSlider.setRange (-1.0, 1.0, 0.01);
     pitchBendSlider.setDoubleClickReturnValue (true, 0.0);
@@ -248,6 +287,21 @@ void PitchCorrectorAudioProcessorEditor::stylePitchReadout (juce::Label& title,
     value.setColour (juce::Label::textColourId, juce::Colour (SolLookAndFeel::kTitleHi));
 }
 
+void PitchCorrectorAudioProcessorEditor::setCentreTab (int t)
+{
+    currentCentreTab = juce::jlimit (0, 1, t);
+    const bool knobs = (currentCentreTab == 0);
+
+    roboticKnob.setVisible (knobs); roboticLbl.setVisible (knobs);
+    subKnob    .setVisible (knobs); subLbl    .setVisible (knobs);
+    formantKnob.setVisible (knobs); formantLbl.setVisible (knobs);
+    oscilloscope.setVisible (! knobs);
+
+    tabKnobsBtn.setToggleState (knobs,  juce::dontSendNotification);
+    tabScopeBtn.setToggleState (! knobs, juce::dontSendNotification);
+    resized();
+}
+
 void PitchCorrectorAudioProcessorEditor::refreshKeyNoteSelection()
 {
     int sel = 0;
@@ -292,17 +346,39 @@ void PitchCorrectorAudioProcessorEditor::resized()
         pitchOutValue.setBounds (outCol);
     }
 
-    auto knobRow = centre;
-    const int gap = juce::jmax (8, knobRow.getWidth() / 40);
-    const int rw = (knobRow.getWidth() - gap) / 2;
+    // Tab strip across the top of the centre column
+    auto tabStrip = centre.removeFromTop (24);
+    {
+        const int tabW = juce::jmax (60, juce::jmin (110, tabStrip.getWidth() / 2 - 4));
+        tabKnobsBtn.setBounds (tabStrip.removeFromLeft (tabW));
+        tabStrip.removeFromLeft (4);
+        tabScopeBtn.setBounds (tabStrip.removeFromLeft (tabW));
+    }
+    centre.removeFromTop (4);
 
-    auto leftKnob = knobRow.removeFromLeft (rw);
-    roboticLbl.setBounds (leftKnob.removeFromTop (18));
-    roboticKnob.setBounds (leftKnob);
+    if (currentCentreTab == 0)
+    {
+        auto knobRow = centre;
+        const int gap = juce::jmax (8, knobRow.getWidth() / 40);
+        const int rw  = (knobRow.getWidth() - 2 * gap) / 3;
 
-    knobRow.removeFromLeft (gap);
-    formantLbl.setBounds (knobRow.removeFromTop (18));
-    formantKnob.setBounds (knobRow);
+        auto leftKnob = knobRow.removeFromLeft (rw);
+        roboticLbl.setBounds (leftKnob.removeFromTop (18));
+        roboticKnob.setBounds (leftKnob);
+
+        knobRow.removeFromLeft (gap);
+        auto midKnob = knobRow.removeFromLeft (rw);
+        subLbl.setBounds (midKnob.removeFromTop (18));
+        subKnob.setBounds (midKnob);
+
+        knobRow.removeFromLeft (gap);
+        formantLbl.setBounds (knobRow.removeFromTop (18));
+        formantKnob.setBounds (knobRow);
+    }
+    else
+    {
+        oscilloscope.setBounds (centre.reduced (2, 2));
+    }
 
     auto row = bottom;
     constexpr int bottomStripGap = 12;
@@ -418,6 +494,13 @@ void PitchCorrectorAudioProcessorEditor::timerCallback()
                                juce::dontSendNotification);
     else
         midiStatusLbl.setText ("No midi", juce::dontSendNotification);
+
+    if (currentCentreTab == 1 && oscilloscope.isVisible())
+    {
+        oscilloscope.update (processorRef.getScopeBuffer(),
+                             processorRef.getScopeValidSamples());
+        oscilloscope.repaint();
+    }
 
     repaint();
 }

@@ -19,7 +19,9 @@
 #include "PitchDetector.h"
 #include "PitchShifter.h"
 #include "ScaleQuantizer.h"
+#include "VocalFx.h"
 
+#include <array>
 #include <atomic>
 #include <vector>
 
@@ -69,8 +71,16 @@ public:
     int getLastMidiChannel() const noexcept { return lastMidiChannel.load (std::memory_order_relaxed); }
     int getActiveMidiNoteCount() const noexcept { return activeMidiNoteCount.load (std::memory_order_relaxed); }
 
+    /** Thread-safe snapshot of the latest output block for the oscilloscope view. */
+    const juce::AudioBuffer<float>& getScopeBuffer() const noexcept
+    {
+        return scopeBuffers[scopeReadIndex.load (std::memory_order_acquire)];
+    }
+    int getScopeValidSamples() const noexcept { return scopeValidSamples.load (std::memory_order_acquire); }
+
     static constexpr const char* PID_BYPASS       = "bypass";
     static constexpr const char* PID_ROBOTIC    = "robotic";
+    static constexpr const char* PID_SUB        = "sub";
     static constexpr const char* PID_FORMANT    = "formant";
     static constexpr const char* PID_SCALE      = "scale";
     static constexpr const char* PID_ROOT       = "root";
@@ -84,6 +94,21 @@ private:
 
     PitchDetector detector;
     PitchShifter  shifter;
+
+    VocalFx::SubVocoder      subVocoder;
+    VocalFx::DeEsser         deEsser;
+    VocalFx::PinkNoiseSource pinkNoise;
+
+    // Per-sample mono-summed dry input — modulator for the sub vocoder.
+    std::vector<float> monoInputScratch;
+
+    // Per-sample sibilance presence published by the de-esser; gates pink noise.
+    std::vector<float> sibilanceScratch;
+
+    // Double-buffered post-processing snapshot for the editor's oscilloscope.
+    std::array<juce::AudioBuffer<float>, 2> scopeBuffers;
+    std::atomic<int> scopeReadIndex     { 0 };
+    std::atomic<int> scopeValidSamples  { 0 };
 
     juce::AudioProcessorValueTreeState apvts;
 

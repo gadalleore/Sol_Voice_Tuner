@@ -336,6 +336,9 @@ void PitchCorrectorAudioProcessor::prepareToPlay (double sampleRate, int samples
     scopeReadIndex.store (0);
     scopeValidSamples.store (0);
 
+    for (auto& m : meterPeak) m.store (0.0f);
+    for (auto& m : meterRms)  m.store (0.0f);
+
 
 
     smoothedRatio = 1.0f;
@@ -925,6 +928,7 @@ void PitchCorrectorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     if (bypass)
     {
         runPitchDetection (buffer);   // keep the pitch readout alive while bypassed
+        publishMetersAndScope (buffer);   // 63C-18: sidebar stays live on the dry signal
         return;
     }
 
@@ -1105,7 +1109,32 @@ void PitchCorrectorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     if (! juce::approximatelyEqual (outGain, 1.0f))
         buffer.applyGain (outGain);
 
-    // === Publish post-processing snapshot to the oscilloscope (lock-free) ===
+    publishMetersAndScope (buffer);
+}
+
+void PitchCorrectorAudioProcessor::publishMetersAndScope (const juce::AudioBuffer<float>& buffer) noexcept
+{
+    const int chs = buffer.getNumChannels();
+    const int N   = buffer.getNumSamples();
+    if (chs <= 0 || N <= 0)
+        return;
+
+    // === 63C-18 meter tap (lock-free): peak max-accumulates until the UI
+    // reads-and-clears it, so transients between 30 Hz polls aren't missed. ===
+    for (int ch = 0; ch < 2; ++ch)
+    {
+        const int   src = juce::jmin (ch, chs - 1);
+        const float pk  = buffer.getMagnitude (src, 0, N);
+        const float rms = buffer.getRMSLevel  (src, 0, N);
+
+        auto& slot = meterPeak[(size_t) ch];
+        float cur  = slot.load (std::memory_order_relaxed);
+        while (cur < pk && ! slot.compare_exchange_weak (cur, pk, std::memory_order_relaxed)) {}
+
+        meterRms[(size_t) ch].store (rms, std::memory_order_relaxed);
+    }
+
+    // === Publish post-processing snapshot to the scopes (lock-free) ===
     {
         const int readIdx  = scopeReadIndex.load (std::memory_order_relaxed);
         const int writeIdx = 1 - readIdx;

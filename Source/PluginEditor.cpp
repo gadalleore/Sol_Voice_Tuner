@@ -20,6 +20,8 @@ PitchCorrectorAudioProcessorEditor::PitchCorrectorAudioProcessorEditor (
     addAndMakeVisible (pageStack);
     pageStack.setRootPage (homePage);
 
+    addAndMakeVisible (meterSidebar);
+
     setResizable (true, true);
     setResizeLimits (720, 380, 1200, 760);
     setSize (800, 460);
@@ -37,5 +39,7 @@ void PitchCorrectorAudioProcessorEditor::paint (juce::Graphics& g)
 
 void PitchCorrectorAudioProcessorEditor::resized()
 {
-    pageStack.setBounds (getLocalBounds());
+    auto r = getLocalBounds();
+    meterSidebar.setBounds (r.removeFromRight (MeterSidebar::kWidth));
+    pageStack.setBounds (r);
 }

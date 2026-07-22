@@ -83,6 +83,18 @@ public:
     }
     int getScopeValidSamples() const noexcept { return scopeValidSamples.load (std::memory_order_acquire); }
 
+    /** 63C-18 meter tap (linear gain, post output chain + master volume).
+        Peak max-accumulates between UI reads so short transients aren't missed
+        at UI frame rates; the read clears it. RMS holds the latest block. */
+    float getAndClearMeterPeak (int ch) noexcept
+    {
+        return meterPeak[(size_t) juce::jlimit (0, 1, ch)].exchange (0.0f, std::memory_order_acq_rel);
+    }
+    float getMeterRms (int ch) const noexcept
+    {
+        return meterRms[(size_t) juce::jlimit (0, 1, ch)].load (std::memory_order_relaxed);
+    }
+
     static constexpr const char* PID_BYPASS       = "bypass";
     static constexpr const char* PID_ROBOTIC    = "robotic";
     static constexpr const char* PID_SUB        = "sub";
@@ -186,6 +198,11 @@ private:
     std::atomic<int> scopeReadIndex     { 0 };
     std::atomic<int> scopeValidSamples  { 0 };
 
+    // 63C-18 meter tap: per-channel block peak (max-accumulated until the UI
+    // reads-and-clears) and latest-block RMS.
+    std::array<std::atomic<float>, 2> meterPeak { 0.0f, 0.0f };
+    std::array<std::atomic<float>, 2> meterRms  { 0.0f, 0.0f };
+
     juce::AudioProcessorValueTreeState apvts;
 
     double currentSampleRate { 44100.0 };
@@ -221,6 +238,11 @@ private:
 
     /** Forwards one chain's APVTS params to its EffectChain and processes the buffer. */
     void applyFxChain (int chain, juce::AudioBuffer<float>& buffer) noexcept;
+
+    /** 63C-18: publish meter atomics + the double-buffered scope snapshot.
+        Called at the end of processBlock and from the bypass path so the
+        sidebar stays live either way. */
+    void publishMetersAndScope (const juce::AudioBuffer<float>& buffer) noexcept;
 
     /** 63C-13 hook: harmony voices will render and sum onto the lead voice here.
         The summing point's place in the graph (post voice chain, pre output

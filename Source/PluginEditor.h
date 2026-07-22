@@ -20,6 +20,7 @@
 #include "EffectsWindowPage.h"
 #include "HarmoniesWindowPage.h"
 #include "TuningWindowPage.h"
+#include "MeterSidebar.h"
 
 class PitchCorrectorAudioProcessorEditor final : public juce::AudioProcessorEditor
 {
@@ -47,6 +48,9 @@ private:
                                        "Output Global Effects", pageStack };
     HarmoniesWindowPage harmoniesPage { pageStack };
     TuningWindowPage    tuningPage    { processorRef, pageStack };
+
+    // 63C-18: always-visible metering column, outside the PageStack.
+    MeterSidebar meterSidebar { processorRef };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PitchCorrectorAudioProcessorEditor)
 };

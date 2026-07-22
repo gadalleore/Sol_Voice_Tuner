@@ -140,19 +140,7 @@ LegacyTunerPage::LegacyTunerPage (PitchCorrectorAudioProcessor& p)
     addAndMakeVisible (oscilloscope);
     setCentreTab (0);
 
-    pitchBendSlider.setRange (-1.0, 1.0, 0.01);
-    pitchBendSlider.setDoubleClickReturnValue (true, 0.0);
-    pitchBendSlider.setSliderStyle (juce::Slider::LinearVertical);
-    pitchBendSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-    addAndMakeVisible (pitchBendSlider);
-    pitchBendLbl.setText ("Pitch Bend", juce::dontSendNotification);
-    pitchBendLbl.setJustificationType (juce::Justification::centred);
-    pitchBendLbl.setFont (juce::Font (juce::FontOptions (11.5f, juce::Font::bold)));
-    pitchBendLbl.setColour (juce::Label::textColourId, juce::Colour (SolLookAndFeel::kLabelAlt));
-    addAndMakeVisible (pitchBendLbl);
-    bendAtt = std::make_unique<SAtt> (processorRef.getAPVTS(),
-                                      PitchCorrectorAudioProcessor::PID_PITCH_BEND, pitchBendSlider);
-
+    // 63C-18: pitch bend + volume moved to the always-visible MeterSidebar.
     bendRangeKnob.setRange (0.0, 12.0, 1.0);
     bendRangeKnob.setNumDecimalPlacesToDisplay (0);
     bendRangeKnob.setTextValueSuffix (" st");
@@ -167,19 +155,6 @@ LegacyTunerPage::LegacyTunerPage (PitchCorrectorAudioProcessor& p)
     addAndMakeVisible (bendRangeLbl);
     bendRangeAtt = std::make_unique<SAtt> (processorRef.getAPVTS(),
                                             PitchCorrectorAudioProcessor::PID_BEND_RANGE, bendRangeKnob);
-
-    volumeSlider.setSliderStyle (juce::Slider::LinearVertical);
-    volumeSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-    volumeSlider.setDoubleClickReturnValue (true, 0.0);
-    volumeSlider.setTextValueSuffix (" dB");
-    addAndMakeVisible (volumeSlider);
-    volumeLbl.setText ("Volume", juce::dontSendNotification);
-    volumeLbl.setJustificationType (juce::Justification::centred);
-    volumeLbl.setFont (juce::Font (juce::FontOptions (11.5f, juce::Font::bold)));
-    volumeLbl.setColour (juce::Label::textColourId, juce::Colour (SolLookAndFeel::kLabelAlt));
-    addAndMakeVisible (volumeLbl);
-    volumeAtt = std::make_unique<SAtt> (processorRef.getAPVTS(),
-                                        PitchCorrectorAudioProcessor::PID_VOLUME, volumeSlider);
 
     for (int i = 0; i < (int) SolTune::Scale::NumScales; ++i)
         scaleBox.addItem (SolTune::scaleName (i), i + 1);
@@ -407,23 +382,11 @@ void LegacyTunerPage::resized()
     row.removeFromLeft (bottomStripGap);
 
     row.removeFromRight (6);
-    // Bend range knob | pitch-bend fader | volume fader (hardware-style grouping).
-    const int clusterW = juce::jmin (300, juce::jmax (210, juce::jmin (row.getWidth() - 40, 320)));
-    auto bendCluster = row.removeFromRight (clusterW).reduced (2, 2);
-    const int bendRangeColW = juce::jmax (60, juce::roundToInt ((float) bendCluster.getWidth() * 0.30f));
-    auto bendRangeCol = bendCluster.removeFromLeft (bendRangeColW);
-    const int faderColW = bendCluster.getWidth() / 2;
-    auto pitchBendCol = bendCluster.removeFromLeft (faderColW);
-    auto volumeCol    = bendCluster;
-
+    // Bend range knob (pitch bend + volume moved to the MeterSidebar, 63C-18).
+    auto bendRangeCol = row.removeFromRight (juce::jmax (72, juce::jmin (row.getWidth() / 3, 100)))
+                           .reduced (2, 2);
     bendRangeLbl.setBounds (bendRangeCol.removeFromTop (18));
     bendRangeKnob.setBounds (bendRangeCol);
-
-    pitchBendLbl.setBounds (pitchBendCol.removeFromTop (20));
-    pitchBendSlider.setBounds (pitchBendCol);
-
-    volumeLbl.setBounds (volumeCol.removeFromTop (20));
-    volumeSlider.setBounds (volumeCol);
 
     midiStatusLbl.setBounds (row.reduced (4, 16));
 }

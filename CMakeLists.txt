@@ -108,6 +108,8 @@ target_sources(SolVoiceTuner PRIVATE
     Source/HomePage.h
     Source/WheelComponent.h
     Source/EffectDetailPage.h
+    Source/MeterSidebar.h
+    Source/PitchBendFader.h
     Source/EffectsWindowPage.h
     Source/HarmoniesWindowPage.h
     Source/TuningWindowPage.h

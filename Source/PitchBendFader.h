@@ -10,7 +10,7 @@
         bounded by the two tabs, so it can never go past them. Releasing
         springs it back to centre, like a hardware pitch wheel.
 
-    Bend amount is PID_PITCH_BEND (-1..1); range is PID_BEND_RANGE (0..12 st).
+    Bend amount is PID_PITCH_BEND (-1..1); range is PID_BEND_RANGE (0..48 st).
 */
 
 #pragma once
@@ -135,7 +135,8 @@ private:
     juce::Rectangle<int> contentArea() const { return getLocalBounds().withTrimmedBottom (readoutH); }
     float centreY()   const { return contentArea().toFloat().getCentreY(); }
     float maxExtent() const { return juce::jmax (4.0f, contentArea().toFloat().getHeight() * 0.5f - 8.0f); }
-    float extent()    const { return (rangeSt / 12.0f) * maxExtent(); }
+    // sqrt curve: low ranges keep a usable throw, 48 st still reaches the ends.
+    float extent()    const { return std::sqrt (juce::jlimit (0.0f, 1.0f, rangeSt / 48.0f)) * maxExtent(); }
 
     void dragBend (const juce::MouseEvent& e)
     {
@@ -149,7 +150,8 @@ private:
     {
         // The grabbed tab follows the cursor; range = its distance from centre.
         const float dist = juce::jlimit (0.0f, maxExtent(), std::abs (centreY() - (float) e.y));
-        const float st   = juce::jlimit (0.0f, 12.0f, (dist / maxExtent()) * 12.0f);
+        const float frac = dist / maxExtent();
+        const float st   = juce::jlimit (0.0f, 48.0f, frac * frac * 48.0f);   // inverse of the sqrt extent curve
         rangeAtt.setValueAsPartOfGesture ((float) juce::roundToInt (st));
     }
 
@@ -170,7 +172,7 @@ private:
 
     juce::ParameterAttachment bendAtt, rangeAtt;
     float bendNorm = 0.0f;   // -1..1
-    float rangeSt  = 2.0f;   // 0..12 semitones
+    float rangeSt  = 2.0f;   // 0..48 semitones
     Mode  mode     = None;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PitchBendFader)

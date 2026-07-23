@@ -200,6 +200,33 @@ namespace SolTune
         return midiPitch;
     }
 
+    /** Transpose `midiPitch` by `steps` SCALE DEGREES within `mask`
+        (12-bit pitch-class mask). Positive = up, negative = down. A full
+        chromatic mask treats each step as one semitone (the "dumb harmonizer");
+        any other scale walks diatonic degrees so a fixed step number yields a
+        musically-correct interval that changes quality with the note. The start
+        note is snapped into the scale first. Returns the resulting MIDI note. */
+    inline int transposeBySteps (int midiPitch, int steps, uint16_t mask)
+    {
+        if (mask == 0 || (mask & 0x0FFFu) == 0x0FFFu)
+            return midiPitch + steps;                       // chromatic: literal semitones
+
+        int note = (int) std::lround (snapMidiToMask ((float) midiPitch, mask));
+        if (steps == 0)
+            return note;
+
+        const int dir = steps > 0 ? 1 : -1;
+        for (int remaining = std::abs (steps); remaining > 0; --remaining)
+        {
+            note += dir;
+            for (int guard = 0;
+                 guard < 12 && ! (mask & (1u << (((note % 12) + 12) % 12)));
+                 ++guard)
+                note += dir;
+        }
+        return note;
+    }
+
     /** Snap a frequency in Hz to the nearest scale note, returning Hz. */
     inline float snapHzToScale (float hz, Root root, Scale scale)
     {

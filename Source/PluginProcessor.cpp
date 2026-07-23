@@ -65,6 +65,14 @@ PitchCorrectorAudioProcessor::PitchCorrectorAudioProcessor()
             fxAmountParams[(size_t) c][(size_t) s] = apvts.getRawParameterValue (fxAmountParamId (c, s));
         }
 
+    for (int v = 0; v < kNumHarmony; ++v)
+    {
+        harmEnableParams  [(size_t) v] = apvts.getRawParameterValue (harmEnableParamId (v));
+        harmIntervalParams[(size_t) v] = apvts.getRawParameterValue (harmIntervalParamId (v));
+        harmLevelParams   [(size_t) v] = apvts.getRawParameterValue (harmLevelParamId (v));
+        harmPanParams     [(size_t) v] = apvts.getRawParameterValue (harmPanParamId (v));
+    }
+
     chainServicer.startTimerHz (30);
 
 }
@@ -272,6 +280,30 @@ PitchCorrectorAudioProcessor::createParameterLayout()
 
 
 
+    // 63C-13 harmony voices: enable + interval (steps) + level + pan each.
+    // Default intervals form a spread chord if a user just switches them on.
+    static constexpr int   defaultInterval[kNumHarmony] = { 2, 4, 7, -5 };
+    static constexpr float defaultPan     [kNumHarmony] = { -0.4f, 0.4f, -0.7f, 0.7f };
+    for (int v = 0; v < kNumHarmony; ++v)
+    {
+        const auto tag = juce::String ("Harmony ") + juce::String (v + 1);
+
+        params.push_back (std::make_unique<APB> (juce::ParameterID { harmEnableParamId (v), 1 },
+                                                 tag + " On", false));
+
+        params.push_back (std::make_unique<juce::AudioParameterInt> (
+            juce::ParameterID { harmIntervalParamId (v), 1 },
+            tag + " Interval", -12, 12, defaultInterval[v]));
+
+        params.push_back (std::make_unique<APF> (juce::ParameterID { harmLevelParamId (v), 1 },
+                                                 tag + " Level",
+                                                 Range (0.0f, 1.0f, 0.01f), 0.7f, roboticAttrs));
+
+        params.push_back (std::make_unique<APF> (juce::ParameterID { harmPanParamId (v), 1 },
+                                                 tag + " Pan",
+                                                 Range (-1.0f, 1.0f, 0.01f), defaultPan[v]));
+    }
+
     return { params.begin(), params.end() };
 
 }
@@ -303,6 +335,16 @@ void PitchCorrectorAudioProcessor::prepareToPlay (double sampleRate, int samples
     shifter.setPitchRatio (1.0f);
 
     shifter.setFormantSemitones (apvts.getRawParameterValue (PID_FORMANT)->load());
+
+    // 63C-13: harmony voices — one Signalsmith shifter + scratch buffer each.
+    for (int v = 0; v < kNumHarmony; ++v)
+    {
+        harmonyShifters[(size_t) v].prepare (sampleRate, samplesPerBlock, ch);
+        harmonyShifters[(size_t) v].setPitchRatio (1.0f);
+        harmonyShifters[(size_t) v].setFormantSemitones (0.0f);   // preserve formants -> natural harmony
+        harmonyScratch [(size_t) v].setSize (ch, juce::jmax (samplesPerBlock, 1), false, true, true);
+        harmonyScratch [(size_t) v].clear();
+    }
 
     subVocoder.prepare (sampleRate);
     deEsser   .prepare (sampleRate, ch);
@@ -374,6 +416,9 @@ void PitchCorrectorAudioProcessor::releaseResources()
 {
 
     shifter.reset();
+
+    for (auto& hs : harmonyShifters)
+        hs.reset();
 
     subVocoder.reset();
     deEsser   .reset();
@@ -877,10 +922,70 @@ void PitchCorrectorAudioProcessor::applyFxChain (int chain, juce::AudioBuffer<fl
     fx.process (buffer);
 }
 
-void PitchCorrectorAudioProcessor::mixHarmonyVoices (juce::AudioBuffer<float>&) noexcept
+void PitchCorrectorAudioProcessor::mixHarmonyVoices (juce::AudioBuffer<float>& buffer) noexcept
 {
-    // Stub: harmony voices (63C-13) will render pitch-shifted copies of the
-    // lead voice and sum them here, between the voice chain and output chain.
+    const int numCh = buffer.getNumChannels();
+    const int numS  = buffer.getNumSamples();
+    if (numS <= 0 || numCh <= 0)
+        return;
+
+    // Global key/scale decides chromatic (fixed semitones) vs diatonic (scale
+    // degrees) — the "dumb harmonizer vs. proper harmony" switch.
+    const int rootIdx  = juce::roundToInt (apvts.getRawParameterValue (PID_ROOT)->load());
+    const int scaleIdx = juce::roundToInt (apvts.getRawParameterValue (PID_SCALE)->load());
+    const auto root  = (SolTune::Root)  SolTune::clampChoiceIndex (rootIdx, 12);
+    const auto scale = (SolTune::Scale) SolTune::clampChoiceIndex (scaleIdx, (int) SolTune::Scale::NumScales);
+    const uint16_t mask = SolTune::allowedPitchClasses (root, scale);
+
+    // The lead's corrected pitch anchors diatonic harmonies.
+    const float leadHz    = latestSnappedHz.load (std::memory_order_relaxed);
+    const bool  leadValid = leadHz > 1.0f;
+    const int   leadMidi  = leadValid ? (int) std::lround (SolTune::hzToMidi (leadHz)) : 0;
+
+    for (int v = 0; v < kNumHarmony; ++v)
+    {
+        if (harmEnableParams[(size_t) v]->load() < 0.5f)
+            continue;
+
+        const int   steps = (int) std::lround (harmIntervalParams[(size_t) v]->load());
+        const float level = harmLevelParams[(size_t) v]->load();
+        const float pan   = juce::jlimit (-1.0f, 1.0f, harmPanParams[(size_t) v]->load());
+
+        // Resolve interval -> semitones (diatonic when a scale + valid lead pitch).
+        float semis;
+        if (! leadValid || mask == 0 || (mask & 0x0FFFu) == 0x0FFFu)
+            semis = (float) steps;                                  // chromatic / unvoiced fallback
+        else
+            semis = (float) (SolTune::transposeBySteps (leadMidi, steps, mask) - leadMidi);
+
+        const float ratio = juce::jlimit (0.25f, 4.0f, std::pow (2.0f, semis / 12.0f));
+
+        // Pitch-shift a copy of the corrected lead into this voice's scratch.
+        auto& scratch = harmonyScratch[(size_t) v];
+        const int sCh = juce::jmin (numCh, scratch.getNumChannels());
+        for (int c = 0; c < sCh; ++c)
+            juce::FloatVectorOperations::copy (scratch.getWritePointer (c),
+                                               buffer.getReadPointer (c), numS);
+
+        harmonyShifters[(size_t) v].setPitchRatio (ratio);
+        harmonyShifters[(size_t) v].process (scratch);
+
+        // Equal-power pan, then sum into the output.
+        const float ang = (pan * 0.5f + 0.5f) * juce::MathConstants<float>::halfPi;
+        const float gL  = std::cos (ang) * level;
+        const float gR  = std::sin (ang) * level;
+
+        if (numCh >= 2 && sCh >= 1)
+        {
+            const int srcR = sCh > 1 ? 1 : 0;
+            buffer.addFrom (0, 0, scratch, 0,    0, numS, gL);
+            buffer.addFrom (1, 0, scratch, srcR, 0, numS, gR);
+        }
+        else if (sCh >= 1)
+        {
+            buffer.addFrom (0, 0, scratch, 0, 0, numS, level);
+        }
+    }
 }
 
 //==============================================================================

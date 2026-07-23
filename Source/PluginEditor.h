@@ -46,7 +46,7 @@ private:
     EffectsWindowPage   outputFxPage { processorRef.getAPVTS(),
                                        PitchCorrectorAudioProcessor::fxChainOutput,
                                        "Output Global Effects", pageStack };
-    HarmoniesWindowPage harmoniesPage { pageStack };
+    HarmoniesWindowPage harmoniesPage { processorRef.getAPVTS(), pageStack };
     TuningWindowPage    tuningPage    { processorRef, pageStack };
 
     // 63C-18: always-visible metering column, outside the PageStack.

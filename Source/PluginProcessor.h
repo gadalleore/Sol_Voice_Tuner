@@ -150,11 +150,31 @@ public:
         return fxChainPrefix (chain) + juce::String ("Amount") + juce::String (slot + 1);
     }
 
+    /** 63C-13 harmony voices. Voice 0..kNumHarmony-1; each has enable +
+        interval (steps: semitones when key is Chromatic, else scale degrees)
+        + level + pan. The global key/scale (PID_ROOT/PID_SCALE) decides
+        whether the interval is chromatic or diatonic. */
+    static constexpr int kNumHarmony = 4;
+
+    static juce::String harmEnableParamId   (int v) { return "harmEnable"   + juce::String (v + 1); }
+    static juce::String harmIntervalParamId (int v) { return "harmInterval" + juce::String (v + 1); }
+    static juce::String harmLevelParamId    (int v) { return "harmLevel"    + juce::String (v + 1); }
+    static juce::String harmPanParamId      (int v) { return "harmPan"      + juce::String (v + 1); }
+
 private:
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     PitchDetector detector;
     PitchShifter  shifter;
+
+    // 63C-13: one pitch-shifter + scratch per harmony voice (pre-allocated in
+    // prepareToPlay; only processed when the voice is enabled).
+    std::array<PitchShifter, kNumHarmony>            harmonyShifters;
+    std::array<juce::AudioBuffer<float>, kNumHarmony> harmonyScratch;
+    std::array<std::atomic<float>*, kNumHarmony> harmEnableParams   {};
+    std::array<std::atomic<float>*, kNumHarmony> harmIntervalParams {};
+    std::array<std::atomic<float>*, kNumHarmony> harmLevelParams    {};
+    std::array<std::atomic<float>*, kNumHarmony> harmPanParams      {};
 
     VocalFx::SubVocoder      subVocoder;
     VocalFx::DeEsser         deEsser;

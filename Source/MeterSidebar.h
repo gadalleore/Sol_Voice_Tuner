@@ -51,13 +51,7 @@ public:
 
         addAndMakeVisible (levelMeter);
 
-        bendFader.setRange (-1.0, 1.0, 0.01);
-        bendFader.setSliderStyle (juce::Slider::LinearVertical);
-        bendFader.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-        bendFader.setDoubleClickReturnValue (true, 0.0);
         addAndMakeVisible (bendFader);
-        bendAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-            processorRef.getAPVTS(), PitchCorrectorAudioProcessor::PID_PITCH_BEND, bendFader);
 
         addAndMakeVisible (lissajous);
         addAndMakeVisible (oscilloscope);
@@ -284,12 +278,12 @@ private:
 
     juce::Slider          volumeKnob { juce::Slider::RotaryHorizontalVerticalDrag,
                                        juce::Slider::TextBoxBelow };
-    PitchBendFaderSlider  bendFader  { processorRef };
+    PitchBendFader        bendFader  { processorRef };
     StereoLevelMeter      levelMeter;
     LissajousComponent    lissajous;
     OscilloscopeComponent oscilloscope;
 
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> volumeAtt, bendAtt;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> volumeAtt;
 
     float rmsDisp[2]  { 0.0f, 0.0f };
     float peakDisp[2] { 0.0f, 0.0f };

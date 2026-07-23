@@ -78,4 +78,6 @@ void OscilloscopeComponent::update (const juce::AudioBuffer<float>& source, int 
     internalBuffer.clear();
     for (int ch = 0; ch < numCh; ++ch)
         internalBuffer.copyFrom (ch, 0, source, ch, 0, numS);
+
+    repaint();   // 63C-18: the sidebar timer drives update(); without this the trace froze
 }

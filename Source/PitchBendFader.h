@@ -3,13 +3,12 @@
     ----------------
     63C-18: pitch-bend tab hosted in the always-visible meter sidebar.
 
-    Two interactions in one vertical control (per Gard's sketch #3):
-      - Grab the MIDDLE and drag -> bend the pitch. Releasing springs back to
-        centre after a short delay, like a hardware pitch wheel.
-      - Grab either END grip (top or bottom) and pull outward/inward -> set the
-        bend RANGE in semitones. Dragging is relative to where you grabbed, so
-        it never yanks the bend; the shaded band shows how far a full bend
-        reaches and the readout shows the current range.
+    Two moving tabs set the bend RANGE; the fader bends BETWEEN them:
+      - Drag either tab (top or bottom) toward/away from centre -> sets the
+        range in semitones. The tabs move to where you drag them.
+      - Drag the fader thumb in the MIDDLE -> bends the pitch. Its travel is
+        bounded by the two tabs, so it can never go past them. Releasing
+        springs it back to centre, like a hardware pitch wheel.
 
     Bend amount is PID_PITCH_BEND (-1..1); range is PID_BEND_RANGE (0..12 st).
 */
@@ -25,8 +24,8 @@ class PitchBendFader final : public juce::Component,
 {
 public:
     static constexpr int snapDelayMs = 100;   // spring-back delay after release
-    static constexpr int gripH       = 20;    // px at each end that grab the range
     static constexpr int readoutH    = 14;    // bottom strip for the "st" readout
+    static constexpr float grabTol   = 7.0f;  // px tolerance when grabbing a tab
 
     explicit PitchBendFader (PitchCorrectorAudioProcessor& p)
         : bendAtt  (*p.getAPVTS().getParameter (PitchCorrectorAudioProcessor::PID_PITCH_BEND),
@@ -42,9 +41,8 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        const float cy   = centreY();
-        const float half = halfTravel();
-        const float ext  = (rangeSt / 12.0f) * half;
+        const float cy  = centreY();
+        const float ext = extent();
 
         auto content = contentArea().toFloat().reduced (3.0f, 0.0f);
         const float cx     = content.getCentreX();
@@ -55,7 +53,7 @@ public:
         g.setColour (juce::Colour (SolLookAndFeel::kPanel));
         g.fillRoundedRectangle (track, 3.0f);
 
-        // Shaded band = reach of a full bend at the current range.
+        // Band between the tabs = where the fader can travel.
         if (ext > 0.5f)
         {
             g.setColour (juce::Colour (SolLookAndFeel::kAccentArc).withAlpha (0.20f));
@@ -69,12 +67,12 @@ public:
         g.setColour (juce::Colour (SolLookAndFeel::kLabelAlt).withAlpha (0.5f));
         g.fillRect (track.getX() - 2.0f, cy - 0.5f, track.getWidth() + 4.0f, 1.0f);
 
-        // End grips (fixed at the physical ends) — the range grab targets.
-        drawGrip (g, content.getX(), content.getRight(), (float) contentArea().getY() + gripH * 0.5f, true);
-        drawGrip (g, content.getX(), content.getRight(), (float) contentArea().getBottom() - gripH * 0.5f, false);
+        // The two range tabs (they move with the range).
+        drawTab (g, content.getX(), content.getRight(), cy - ext);
+        drawTab (g, content.getX(), content.getRight(), cy + ext);
 
-        // Bend thumb.
-        const float thumbY = cy - bendNorm * half;
+        // Bend thumb, bounded to sit between the tabs.
+        const float thumbY = cy - bendNorm * ext;
         g.setColour (juce::Colour (SolLookAndFeel::kAccentGlow));
         g.fillEllipse (cx - 6.0f, thumbY - 6.0f, 12.0f, 12.0f);
         g.setColour (juce::Colour (SolLookAndFeel::kBackground));
@@ -93,32 +91,32 @@ public:
         if (e.mods.isPopupMenu())
             return;
 
-        auto content = contentArea();
-        dragStartY   = (float) e.y;
+        const float cy  = centreY();
+        const float ext = extent();
 
-        if (e.y < content.getY() + gripH || e.y > content.getBottom() - gripH)
+        if ((float) e.y < cy)
         {
-            mode          = (e.y < content.getCentreY()) ? RangeTop : RangeBottom;
-            rangeAtStart  = rangeSt;
-            rangeAtt.beginGesture();
+            if ((float) e.y <= cy - ext + grabTol) { mode = Range; rangeAtt.beginGesture(); dragRange (e); return; }
         }
-        else
+        else if ((float) e.y >= cy + ext - grabTol)
         {
-            mode = Bend;
-            bendAtt.beginGesture();
-            dragBend (e);
+            mode = Range; rangeAtt.beginGesture(); dragRange (e); return;
         }
+
+        mode = Bend;
+        bendAtt.beginGesture();
+        dragBend (e);
     }
 
     void mouseDrag (const juce::MouseEvent& e) override
     {
-        if (mode == Bend)   dragBend (e);
-        else if (mode != None) dragRange (e);
+        if (mode == Bend)       dragBend (e);
+        else if (mode == Range) dragRange (e);
     }
 
     void mouseUp (const juce::MouseEvent&) override
     {
-        if (mode == RangeTop || mode == RangeBottom)
+        if (mode == Range)
         {
             rangeAtt.endGesture();
         }
@@ -132,44 +130,36 @@ public:
     }
 
 private:
-    enum Mode { None, Bend, RangeTop, RangeBottom };
+    enum Mode { None, Bend, Range };
 
     juce::Rectangle<int> contentArea() const { return getLocalBounds().withTrimmedBottom (readoutH); }
-    juce::Rectangle<int> travelArea()  const { return contentArea().reduced (0, gripH); }
-    float centreY()    const { return travelArea().toFloat().getCentreY(); }
-    float halfTravel() const { return juce::jmax (4.0f, travelArea().toFloat().getHeight() * 0.5f - 6.0f); }
+    float centreY()   const { return contentArea().toFloat().getCentreY(); }
+    float maxExtent() const { return juce::jmax (4.0f, contentArea().toFloat().getHeight() * 0.5f - 8.0f); }
+    float extent()    const { return (rangeSt / 12.0f) * maxExtent(); }
 
     void dragBend (const juce::MouseEvent& e)
     {
-        const float v = juce::jlimit (-1.0f, 1.0f, (centreY() - (float) e.y) / halfTravel());
+        const float ext = extent();
+        if (ext < 1.0f) { bendAtt.setValueAsPartOfGesture (0.0f); return; }   // no range -> no bend
+        const float v = juce::jlimit (-1.0f, 1.0f, (centreY() - (float) e.y) / ext);
         bendAtt.setValueAsPartOfGesture (v);
     }
 
     void dragRange (const juce::MouseEvent& e)
     {
-        // Relative drag: pulling a grip outward (away from centre) grows the range.
-        const float outward = (mode == RangeTop) ? (dragStartY - (float) e.y)
-                                                 : ((float) e.y - dragStartY);
-        const float pxPerStep = juce::jmax (6.0f, halfTravel() / 12.0f);
-        const float st = juce::jlimit (0.0f, 12.0f, rangeAtStart + outward / pxPerStep);
+        // The grabbed tab follows the cursor; range = its distance from centre.
+        const float dist = juce::jlimit (0.0f, maxExtent(), std::abs (centreY() - (float) e.y));
+        const float st   = juce::jlimit (0.0f, 12.0f, (dist / maxExtent()) * 12.0f);
         rangeAtt.setValueAsPartOfGesture ((float) juce::roundToInt (st));
     }
 
-    void drawGrip (juce::Graphics& g, float x0, float x1, float y, bool pointUp)
+    void drawTab (juce::Graphics& g, float x0, float x1, float y)
     {
-        juce::Rectangle<float> bar (x0, y - 5.0f, x1 - x0, 10.0f);
+        juce::Rectangle<float> bar (x0, y - 3.0f, x1 - x0, 6.0f);
         g.setColour (juce::Colour (SolLookAndFeel::kTitleHi));
-        g.fillRoundedRectangle (bar, 3.0f);
-
-        // Two ticks hinting the grip is draggable, plus a direction chevron.
-        g.setColour (juce::Colour (SolLookAndFeel::kBackground).withAlpha (0.75f));
-        const float cx = bar.getCentreX();
-        const float dir = pointUp ? -1.0f : 1.0f;
-        juce::Path chev;
-        chev.startNewSubPath (cx - 3.0f, y + dir * -1.5f);
-        chev.lineTo (cx,        y + dir * 1.5f);
-        chev.lineTo (cx + 3.0f, y + dir * -1.5f);
-        g.strokePath (chev, juce::PathStrokeType (1.2f));
+        g.fillRoundedRectangle (bar, 2.0f);
+        g.setColour (juce::Colour (SolLookAndFeel::kBackground).withAlpha (0.6f));
+        g.fillRect (bar.getCentreX() - 4.0f, y - 0.5f, 8.0f, 1.0f);
     }
 
     void timerCallback() override
@@ -179,11 +169,9 @@ private:
     }
 
     juce::ParameterAttachment bendAtt, rangeAtt;
-    float bendNorm     = 0.0f;   // -1..1
-    float rangeSt      = 2.0f;   // 0..12 semitones
-    float rangeAtStart = 2.0f;
-    float dragStartY   = 0.0f;
-    Mode  mode         = None;
+    float bendNorm = 0.0f;   // -1..1
+    float rangeSt  = 2.0f;   // 0..12 semitones
+    Mode  mode     = None;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PitchBendFader)
 };

@@ -206,11 +206,11 @@ PitchCorrectorAudioProcessor::createParameterLayout()
 
     const auto bendRangeAttrs = APA().withStringFromValueFunction ([] (float v, int)
     {
-        return juce::String (juce::roundToInt (juce::jlimit (0.0f, 48.0f, v)));
+        return juce::String (juce::roundToInt (juce::jlimit (0.0f, 24.0f, v)));
     })
         .withValueFromStringFunction ([] (const juce::String& text)
         {
-            return (float) juce::jlimit (0, 48, text.trim().getIntValue());
+            return (float) juce::jlimit (0, 24, text.trim().getIntValue());
         })
         .withLabel (" st");
 
@@ -218,7 +218,7 @@ PitchCorrectorAudioProcessor::createParameterLayout()
 
                                              "Bend Range",
 
-                                             Range (0.0f, 48.0f, 1.0f), 2.0f, bendRangeAttrs));
+                                             Range (0.0f, 24.0f, 1.0f), 2.0f, bendRangeAttrs));
 
 
 
@@ -1007,7 +1007,7 @@ void PitchCorrectorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
 
     const float bendRatio = std::pow (2.0f, (bendNorm * bendRange) / 12.0f);
 
-    const float ratio     = juce::jlimit (0.0625f, 16.0f, baseRatio * bendRatio);   // +/-4 octaves for up to 48 st bend
+    const float ratio     = juce::jlimit (0.25f, 4.0f, baseRatio * bendRatio);
 
 
 

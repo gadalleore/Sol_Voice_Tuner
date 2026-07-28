@@ -12,6 +12,8 @@
 
 #include <JuceHeader.h>
 
+#include "SolLookAndFeel.h"
+
 #include "SolPage.h"
 
 class EffectDetailPage final : public SolPage
@@ -26,13 +28,13 @@ public:
 
         amountLabel.setText ("Amount", juce::dontSendNotification);
         amountLabel.setJustificationType (juce::Justification::centred);
-        amountLabel.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)));
+        amountLabel.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 13.0f, juce::Font::plain)));
         amountLabel.setColour (juce::Label::textColourId,
                                juce::Colour (SolLookAndFeel::kLabel));
         addAndMakeVisible (amountLabel);
 
         slotLabel.setJustificationType (juce::Justification::centred);
-        slotLabel.setFont (juce::Font (juce::FontOptions (11.0f)));
+        slotLabel.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 11.0f, juce::Font::plain)));
         slotLabel.setColour (juce::Label::textColourId,
                              juce::Colour (SolLookAndFeel::kLabelAlt).withAlpha (0.6f));
         addAndMakeVisible (slotLabel);

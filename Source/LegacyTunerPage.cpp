@@ -51,7 +51,7 @@ LegacyTunerPage::LegacyTunerPage (PitchCorrectorAudioProcessor& p)
 {
     productTitle.setText (JucePlugin_Name, juce::dontSendNotification);
     productTitle.setJustificationType (juce::Justification::centred);
-    productTitle.setFont (juce::Font (juce::FontOptions (22.0f, juce::Font::bold)));
+    productTitle.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 22.0f, juce::Font::plain)));
     productTitle.setColour (juce::Label::textColourId, juce::Colour (SolLookAndFeel::kTitleHi));
     addAndMakeVisible (productTitle);
 
@@ -82,7 +82,7 @@ LegacyTunerPage::LegacyTunerPage (PitchCorrectorAudioProcessor& p)
     addAndMakeVisible (roboticKnob);
     roboticLbl.setText ("Robotic", juce::dontSendNotification);
     roboticLbl.setJustificationType (juce::Justification::centred);
-    roboticLbl.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)));
+    roboticLbl.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 13.0f, juce::Font::plain)));
     roboticLbl.setColour (juce::Label::textColourId, juce::Colour (SolLookAndFeel::kLabel));
     addAndMakeVisible (roboticLbl);
     roboticAtt = std::make_unique<SAtt> (processorRef.getAPVTS(),
@@ -104,7 +104,7 @@ LegacyTunerPage::LegacyTunerPage (PitchCorrectorAudioProcessor& p)
     addAndMakeVisible (subKnob);
     subLbl.setText ("Sub", juce::dontSendNotification);
     subLbl.setJustificationType (juce::Justification::centred);
-    subLbl.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)));
+    subLbl.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 13.0f, juce::Font::plain)));
     subLbl.setColour (juce::Label::textColourId, juce::Colour (SolLookAndFeel::kLabel));
     addAndMakeVisible (subLbl);
     subAtt = std::make_unique<SAtt> (processorRef.getAPVTS(),
@@ -117,7 +117,7 @@ LegacyTunerPage::LegacyTunerPage (PitchCorrectorAudioProcessor& p)
     addAndMakeVisible (formantKnob);
     formantLbl.setText ("Formant", juce::dontSendNotification);
     formantLbl.setJustificationType (juce::Justification::centred);
-    formantLbl.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)));
+    formantLbl.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 13.0f, juce::Font::plain)));
     formantLbl.setColour (juce::Label::textColourId, juce::Colour (SolLookAndFeel::kLabel));
     addAndMakeVisible (formantLbl);
     formantAtt = std::make_unique<SAtt> (processorRef.getAPVTS(),
@@ -150,7 +150,7 @@ LegacyTunerPage::LegacyTunerPage (PitchCorrectorAudioProcessor& p)
     addAndMakeVisible (bendRangeKnob);
     bendRangeLbl.setText ("Bend range", juce::dontSendNotification);
     bendRangeLbl.setJustificationType (juce::Justification::centred);
-    bendRangeLbl.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
+    bendRangeLbl.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 11.0f, juce::Font::plain)));
     bendRangeLbl.setColour (juce::Label::textColourId, juce::Colour (SolLookAndFeel::kLabel));
     addAndMakeVisible (bendRangeLbl);
     bendRangeAtt = std::make_unique<SAtt> (processorRef.getAPVTS(),
@@ -162,7 +162,7 @@ LegacyTunerPage::LegacyTunerPage (PitchCorrectorAudioProcessor& p)
     addAndMakeVisible (scaleBox);
     scaleLbl.setText ("Scale", juce::dontSendNotification);
     scaleLbl.setJustificationType (juce::Justification::centredLeft);
-    scaleLbl.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)));
+    scaleLbl.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 12.0f, juce::Font::plain)));
     scaleLbl.setColour (juce::Label::textColourId, juce::Colour (SolLookAndFeel::kLabelAlt));
     addAndMakeVisible (scaleLbl);
     scaleAtt = std::make_unique<CAtt> (processorRef.getAPVTS(),
@@ -214,7 +214,7 @@ LegacyTunerPage::LegacyTunerPage (PitchCorrectorAudioProcessor& p)
 
     keyLbl.setText ("Key", juce::dontSendNotification);
     keyLbl.setJustificationType (juce::Justification::centredLeft);
-    keyLbl.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)));
+    keyLbl.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 12.0f, juce::Font::plain)));
     keyLbl.setColour (juce::Label::textColourId, juce::Colour (SolLookAndFeel::kLabelAlt));
     addAndMakeVisible (keyLbl);
 
@@ -225,7 +225,7 @@ LegacyTunerPage::LegacyTunerPage (PitchCorrectorAudioProcessor& p)
 
     midiStatusLbl.setText ("", juce::dontSendNotification);
     midiStatusLbl.setJustificationType (juce::Justification::centredLeft);
-    midiStatusLbl.setFont (juce::Font (juce::FontOptions (12.0f)));
+    midiStatusLbl.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 12.0f, juce::Font::plain)));
     midiStatusLbl.setColour (juce::Label::textColourId,
                              juce::Colour (SolLookAndFeel::kValue).withAlpha (0.85f));
     addAndMakeVisible (midiStatusLbl);
@@ -241,13 +241,13 @@ void LegacyTunerPage::stylePitchReadout (juce::Label& title,
 {
     title.setText (titleText, juce::dontSendNotification);
     title.setJustificationType (juce::Justification::centred);
-    title.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)));
+    title.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 13.0f, juce::Font::plain)));
     title.setColour (juce::Label::textColourId, juce::Colour (SolLookAndFeel::kLabelAlt));
 
     value.setText ("No Sound", juce::dontSendNotification);
     value.setJustificationType (juce::Justification::centred);
-    value.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(),
-                                                 26.0f, juce::Font::bold)));
+    value.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface,
+                                                                                                  26.0f, juce::Font::plain)));
     value.setColour (juce::Label::textColourId, juce::Colour (SolLookAndFeel::kTitleHi));
 }
 

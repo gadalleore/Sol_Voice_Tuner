@@ -104,6 +104,9 @@ target_sources(SolVoiceTuner PRIVATE
     Source/PluginEditor.cpp
     Source/PluginEditor.h
     Source/PageStack.h
+    Source/ChamferPanel.h
+    Source/FloatingShell.h
+    Source/LissajousDisplay.h
     Source/SolPage.h
     Source/HomePage.h
     Source/WheelComponent.h

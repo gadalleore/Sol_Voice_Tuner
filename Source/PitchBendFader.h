@@ -70,7 +70,7 @@ public:
         g.setColour (juce::Colour (SolLookAndFeel::kAccentGlow).withAlpha (draggingBox ? 0.9f : 0.5f));
         g.drawRoundedRectangle (box, 3.0f, 1.0f);
         g.setColour (juce::Colour (SolLookAndFeel::kLabelAlt));
-        g.setFont (juce::Font (juce::FontOptions (10.5f, juce::Font::bold)));
+        g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 10.5f, juce::Font::plain)));
         g.drawText (juce::String::fromUTF8 ("\xc2\xb1") + juce::String (juce::roundToInt (rangeSt)) + " st",
                     box, juce::Justification::centred);
     }

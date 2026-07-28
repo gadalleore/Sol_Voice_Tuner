@@ -20,6 +20,8 @@
 
 #include <JuceHeader.h>
 
+#include "SolLookAndFeel.h"
+
 #include "SolPage.h"
 #include "PluginProcessor.h"
 #include "ScaleQuantizer.h"
@@ -67,7 +69,7 @@ public:
 
         // End + centre labels.
         g.setColour (juce::Colour (SolLookAndFeel::kLabelAlt).withAlpha (0.85f));
-        g.setFont (juce::Font (juce::FontOptions (10.0f, juce::Font::bold)));
+        g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 10.0f, juce::Font::plain)));
         drawTickLabel (g, "+12", pointForU (1.0f));
         drawTickLabel (g, "0",   pointForU (0.0f));
         drawTickLabel (g, "-12", pointForU (-1.0f));
@@ -82,11 +84,11 @@ public:
         // Big value readout + mode, in the open (right) side.
         auto text = getLocalBounds().withTrimmedRight ((int) (getWidth() * 0.42f));
         g.setColour (juce::Colour (SolLookAndFeel::kTitleHi));
-        g.setFont (juce::Font (juce::FontOptions (26.0f, juce::Font::bold)));
+        g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 26.0f, juce::Font::plain)));
         g.drawText ((value > 0 ? "+" : "") + juce::String (value),
                     text.removeFromTop (text.getHeight() / 2), juce::Justification::centred);
         g.setColour (juce::Colour (SolLookAndFeel::kLabelAlt));
-        g.setFont (juce::Font (juce::FontOptions (11.0f)));
+        g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 11.0f, juce::Font::plain)));
         g.drawText ((isChromatic && isChromatic()) ? "semitones" : "scale steps",
                     text.removeFromTop (18), juce::Justification::centred);
     }
@@ -216,7 +218,7 @@ private:
 
     void styleLbl (juce::Label& l)
     {
-        l.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
+        l.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 11.0f, juce::Font::plain)));
         l.setColour (juce::Label::textColourId, juce::Colour (SolLookAndFeel::kLabelAlt));
         addAndMakeVisible (l);
     }
@@ -273,7 +275,7 @@ public:
                 g.setColour (juce::Colour (hot ? SolLookAndFeel::kOutlineHi : SolLookAndFeel::kOutline));
                 g.drawRoundedRectangle (pill, pill.getHeight() * 0.5f, hot ? 2.0f : 1.2f);
                 g.setColour (juce::Colour (SolLookAndFeel::kTitleHi));
-                g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)));
+                g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 13.0f, juce::Font::plain)));
                 g.drawText ("Harmony " + juce::String (i + 1), pill, juce::Justification::centred);
             }
             else
@@ -287,7 +289,7 @@ public:
                                  .withAlpha (hot ? 0.95f : 0.6f));
                 g.fillPath (dashed);
                 g.setColour (juce::Colour (hot ? SolLookAndFeel::kTitleHi : SolLookAndFeel::kLabelAlt));
-                g.setFont (juce::Font (juce::FontOptions (18.0f, juce::Font::bold)));
+                g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 18.0f, juce::Font::plain)));
                 g.drawText ("+", pill, juce::Justification::centred);
             }
         }
@@ -300,7 +302,7 @@ public:
                          .withAlpha (0.7f));
         g.drawEllipse (centre.x - hubR, centre.y - hubR, hubR * 2.0f, hubR * 2.0f, 2.0f);
         g.setColour (juce::Colour (SolLookAndFeel::kTitleHi));
-        g.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)));
+        g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 14.0f, juce::Font::plain)));
         g.drawText ("LEAD", juce::Rectangle<float> (centre.x - hubR, centre.y - 9.0f, hubR * 2.0f, 18.0f),
                     juce::Justification::centred);
     }
@@ -380,7 +382,7 @@ public:
           voicePage (apvtsIn, stackToUse)
     {
         keyLbl.setText ("Key", juce::dontSendNotification);
-        keyLbl.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
+        keyLbl.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 11.0f, juce::Font::plain)));
         keyLbl.setColour (juce::Label::textColourId, juce::Colour (SolLookAndFeel::kLabelAlt));
         addAndMakeVisible (keyLbl);
 

@@ -69,6 +69,42 @@ public:
     void setNumSlots (int n)              { numSlots = juce::jmax (1, n); clampRimScroll(); repaint(); }
     void setPillSize (float w, float h)   { pillW = w; pillH = h; repaint(); }
 
+    /** Point size of the item labels on the rim. */
+    void setItemFontHeight (float h)      { itemFontHeight = juce::jmax (1.0f, h); repaint(); }
+
+    /** How far in the painted rim/hub circles sit relative to the slot radius.
+        1.0 puts the rim exactly under the labels; smaller values pull the
+        circles toward the left edge so the labels stand clear of them. */
+    void setRingScale (float s)           { ringScale = juce::jlimit (0.05f, 1.0f, s); repaint(); }
+
+    /** Component shown inside the hub circle — the wheel's centre. Not owned.
+        The wheel's centre sits on the left edge, so only the right half of the
+        hub is visible; the content is fitted to that visible half. */
+    void setHubContent (juce::Component* c)
+    {
+        if (hubContent == c)
+            return;
+
+        if (hubContent != nullptr)
+            removeChildComponent (hubContent);
+
+        hubContent = c;
+
+        if (hubContent != nullptr)
+        {
+            addAndMakeVisible (hubContent);
+            hubContent->toBack();
+        }
+
+        layoutHubContent();
+    }
+
+    void resized() override
+    {
+        computeGeometry();
+        layoutHubContent();
+    }
+
     void setPalette (std::vector<Item> items)
     {
         palette = std::move (items);
@@ -76,24 +112,58 @@ public:
         repaint();
     }
 
+    /** The wheel spans the whole panel but only uses the hub and the rim band
+        where pills sit. Everything else — the empty space to the right of the
+        arc — is dead area, so let those clicks pass through to the window
+        underneath, which uses them to drag the plugin around. */
+    bool hitTest (int x, int y) override
+    {
+        if (radius <= 0.0f)     // geometry not computed yet (before first paint)
+            return true;
+
+        const juce::Point<float> p ((float) x, (float) y);
+        const float d = p.getDistanceFrom (centre);
+
+        if (d <= hubRadius())               // hub holds the palette
+            return true;
+
+        if (std::abs (d - radius) <= pillH) // rim band where the pills live
+            return true;
+
+        // Hover-scroll strips, but only when there is actually a chain to
+        // scroll — otherwise they would eat drags along the top and bottom.
+        if (scrollableRim())
+        {
+            const float zone = (float) getHeight() * kEdgeZoneFrac;
+
+            if ((float) y <= zone || (float) y >= (float) getHeight() - zone)
+                return true;
+        }
+
+        return false;
+    }
+
     //==========================================================================
     void paint (juce::Graphics& g) override
     {
         computeGeometry();
 
-        // The wheel itself: rim circle (left half clips away), active arc, hub.
+        // The wheel itself: rim circle (left half clips away) and hub.
+        //
+        // The DRAWN circles are pulled back toward the left edge by ringScale
+        // so the item labels — which stay out at the full slot radius — sit
+        // clear of them instead of on top (Gard, 2026-07-28). Slot geometry
+        // and hit-testing are unaffected; this is purely what gets painted.
         {
+            const float rimR = radius * ringScale;
+
             g.setColour (juce::Colour (SolLookAndFeel::kOutline).withAlpha (0.35f));
-            g.drawEllipse (centre.x - radius, centre.y - radius,
-                           radius * 2.0f, radius * 2.0f, 1.2f);
+            g.drawEllipse (centre.x - rimR, centre.y - rimR,
+                           rimR * 2.0f, rimR * 2.0f, 1.2f);
 
-            juce::Path arc;
-            arc.addCentredArc (centre.x, centre.y, radius, radius, 0.0f,
-                               arcStart - 0.10f, arcEnd + 0.10f, true);
-            g.setColour (juce::Colour (SolLookAndFeel::kAccentGlow).withAlpha (0.45f));
-            g.strokePath (arc, juce::PathStrokeType (3.5f));
+            // No accent arc: the rim reads from the items alone (Gard, 2026-07-28).
 
-            const float hubR = hubRadius();
+            const float hubR = hubRadius() * ringScale;
             g.setColour (juce::Colour (SolLookAndFeel::kPanel).withAlpha (0.55f));
             g.fillEllipse (centre.x - hubR, centre.y - hubR, hubR * 2.0f, hubR * 2.0f);
             g.setColour (juce::Colour (SolLookAndFeel::kOutline).withAlpha (0.5f));
@@ -112,30 +182,27 @@ public:
             const bool isTarget = dragging() && i == hitSlot (dragPos);
             const bool hovered  = ! dragging() && i == hoveredSlot;
 
-            // Spoke from hub edge to the slot.
-            {
-                const auto dir = (pos - centre) / juce::jmax (1.0f, pos.getDistanceFrom (centre));
-                g.setColour (juce::Colour (SolLookAndFeel::kOutline).withAlpha (0.3f));
-                g.drawLine ({ centre + dir * hubRadius(), pos - dir * (pillH * 0.55f) }, 1.0f);
-            }
+            // No spokes: items sit on the rim unattached (Gard, 2026-07-28).
 
             if (occupied)
             {
+                // No pill shape: the label alone is the item. Hover and drag
+                // states now read through colour rather than a border.
                 auto pill = pillAround (pos);
-                g.setColour (juce::Colour (hovered ? SolLookAndFeel::kPanelLight
-                                                   : SolLookAndFeel::kPanel));
-                g.fillRoundedRectangle (pill, pill.getHeight() * 0.5f);
-
-                g.setColour (juce::Colour ((isTarget || hovered) ? SolLookAndFeel::kOutlineHi
-                                                                 : SolLookAndFeel::kOutline));
-                g.drawRoundedRectangle (pill, pill.getHeight() * 0.5f,
-                                        (isTarget || hovered) ? 2.0f : 1.2f);
 
                 const bool dimmed = dragSource == DragSource::slot && dragFromSlot == i;
-                g.setColour (juce::Colour (SolLookAndFeel::kTitleHi)
+                g.setColour (juce::Colour ((isTarget || hovered) ? SolLookAndFeel::kOutlineHi
+                                                                 : SolLookAndFeel::kTitleHi)
                                  .withAlpha (dimmed ? 0.35f : 1.0f));
-                g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)));
-                g.drawText (nameForType (type), pill, juce::Justification::centred);
+
+                // Hovered items swell very slightly — enough to feel alive
+                // without shifting the layout.
+                const float h = hovered ? itemFontHeight * kHoverFontScale
+                                        : itemFontHeight;
+
+                g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface,
+                                                          h, juce::Font::plain)));
+                g.drawText (nameForType (type), pill, juce::Justification::centredLeft);
             }
             else
             {
@@ -157,7 +224,7 @@ public:
         if (scrollableRim())
         {
             g.setColour (juce::Colour (SolLookAndFeel::kLabelAlt).withAlpha (0.45f));
-            g.setFont (juce::Font (juce::FontOptions (10.0f)));
+            g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 10.0f, juce::Font::plain)));
             if (rimScroll > 0.001f)
                 g.drawText ("^ more", scrollHintTop(),    juce::Justification::centredLeft);
             if (rimScroll < maxRimScroll() - 0.001f)
@@ -172,7 +239,7 @@ public:
 
             auto header = paletteClip;
             g.setColour (juce::Colour (SolLookAndFeel::kLabelAlt).withAlpha (0.5f));
-            g.setFont (juce::Font (juce::FontOptions (10.5f, juce::Font::bold)));
+            g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 10.5f, juce::Font::plain)));
             g.drawText ("PULL OUT", header.removeFromTop (16.0f),
                         juce::Justification::centred);
 
@@ -193,7 +260,7 @@ public:
 
                 g.setColour (juce::Colour (SolLookAndFeel::kLabel)
                                  .withAlpha (isDragged ? 0.5f : 1.0f));
-                g.setFont (juce::Font (juce::FontOptions (12.5f)));
+                g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 12.5f, juce::Font::plain)));
                 g.drawText (palette[i].name, pill.reduced (6.0f, 0.0f),
                             juce::Justification::centred);
             }
@@ -210,7 +277,7 @@ public:
             g.setColour (juce::Colour (SolLookAndFeel::kOutlineHi));
             g.drawRoundedRectangle (ghost, ghost.getHeight() * 0.5f, 1.6f);
             g.setColour (juce::Colour (SolLookAndFeel::kTitleHi));
-            g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)));
+            g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 13.0f, juce::Font::plain)));
             g.drawText (nameForType (dragTypeId), ghost, juce::Justification::centred);
         }
     }
@@ -512,9 +579,40 @@ private:
                  centre.y - radius * std::cos (a) };
     }
 
+    /** Label box for a slot, anchored at the slot and running rightward.
+        Centring it on the slot pushed the top and bottom labels off the left
+        edge — their slots sit near the wheel's centre, which is on that edge.
+        Anchoring left keeps every label on screen AND preserves the stagger
+        that makes them read as following the arc (Gard, 2026-07-28). */
+    /** Fits the hub content into the visible (right) half of the hub circle. */
+    void layoutHubContent()
+    {
+        if (hubContent == nullptr)
+            return;
+
+        if (radius <= 0.0f)
+            computeGeometry();
+
+        const float hubR = hubRadius() * ringScale;
+
+        if (hubR < 8.0f)
+        {
+            hubContent->setVisible (false);
+            return;
+        }
+
+        hubContent->setVisible (true);
+
+        // Square inscribed in the visible half-disc: full height, half width,
+        // its left edge on the wheel centre.
+        const float side = hubR * 1.3f;
+        hubContent->setBounds (juce::Rectangle<float> (centre.x, centre.y - side * 0.5f,
+                                                       side, side).toNearestInt());
+    }
+
     juce::Rectangle<float> pillAround (juce::Point<float> p) const
     {
-        return juce::Rectangle<float> (pillW, pillH).withCentre (p);
+        return { p.x - pillH * 0.3f, p.y - pillH * 0.5f, pillW, pillH };
     }
 
     juce::Rectangle<float> scrollHintTop() const
@@ -572,9 +670,16 @@ private:
     // Hover-edge auto-scroll (63C-17): zone depth as a fraction of component
     // height, and full-tilt scroll speed in radians of rim per second.
     static constexpr float kEdgeZoneFrac   = 0.16f;
+
+    /** How much a hovered item's label grows. */
+    static constexpr float kHoverFontScale = 1.02f;
     static constexpr float kEdgeScrollRate = 1.4f;
 
     float pillW = 104.0f, pillH = 30.0f;
+    float itemFontHeight = 13.0f;
+    float ringScale      = 1.0f;
+
+    juce::Component* hubContent = nullptr;
 
     int numSlots = 6;
     std::vector<Item> palette;

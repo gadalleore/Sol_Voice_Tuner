@@ -233,7 +233,7 @@ private:
     {
         l.setText (text, juce::dontSendNotification);
         l.setJustificationType (juce::Justification::centred);
-        l.setFont (juce::Font (juce::FontOptions (10.5f, juce::Font::bold)));
+        l.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 10.5f, juce::Font::plain)));
         l.setColour (juce::Label::textColourId,
                      juce::Colour (SolLookAndFeel::kLabelAlt).withAlpha (0.8f));
         addAndMakeVisible (l);

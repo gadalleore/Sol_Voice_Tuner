@@ -26,28 +26,31 @@ public:
     //--------------------------------------------------------------------------
     // Brand palette (also exposed for the editor's paint())
     //--------------------------------------------------------------------------
-    static constexpr juce::uint32 kBackground   = 0xff0a0a1f; // deep cosmic navy
-    static constexpr juce::uint32 kPanel        = 0xff1a1a2f; // panel fill
-    static constexpr juce::uint32 kPanelLight   = 0xff2a2a48; // raised panel
-    static constexpr juce::uint32 kOutline      = 0xff3a3a5f; // borders
-    static constexpr juce::uint32 kOutlineHi    = 0xff60d4ff; // active border
+    // Sun-white frutiger aero (2026-07-27). Names are ROLES, so retuning the
+    // values here re-themes everything that reads them. Warm off-whites plus
+    // a sky-blue accent: white like the sun, not clinical white.
+    static constexpr juce::uint32 kBackground   = 0xfff7f5f0; // warm page white
+    static constexpr juce::uint32 kPanel        = 0xfff2efe9; // panel fill
+    static constexpr juce::uint32 kPanelLight   = 0xffffffff; // raised panel
+    static constexpr juce::uint32 kOutline      = 0xffcfccc6; // borders (matches the plate)
+    static constexpr juce::uint32 kOutlineHi    = 0xff5aa9e6; // active border
 
-    static constexpr juce::uint32 kAccentArc    = 0xff00d4ff; // bright cyan
-    static constexpr juce::uint32 kAccentGlow   = 0xff00b4ff; // softer cyan glow
-    static constexpr juce::uint32 kAccentToggle = 0xff1a4a5f; // toggle ON bg
+    static constexpr juce::uint32 kAccentArc    = 0xff5aa9e6; // sky blue
+    static constexpr juce::uint32 kAccentGlow   = 0xff9ccef0; // softer sky glow
+    static constexpr juce::uint32 kAccentToggle = 0xffdcecf8; // toggle ON bg
 
-    static constexpr juce::uint32 kLabel        = 0xffa0d8ff;
-    static constexpr juce::uint32 kLabelAlt     = 0xffb8e0ff;
-    static constexpr juce::uint32 kValue        = 0xff6dd5fa;
-    static constexpr juce::uint32 kValueAlt     = 0xff88e0ff;
-    static constexpr juce::uint32 kTitleHi      = 0xffd0f4ff;
-    static constexpr juce::uint32 kGroupTitle   = 0xffc0e0ff;
+    static constexpr juce::uint32 kLabel        = 0xff6b6863; // warm grey text
+    static constexpr juce::uint32 kLabelAlt     = 0xff8a867f;
+    static constexpr juce::uint32 kValue        = 0xff3f7fa8;
+    static constexpr juce::uint32 kValueAlt     = 0xff5aa9e6;
+    static constexpr juce::uint32 kTitleHi      = 0xff2f2c28; // near-black, warm
+    static constexpr juce::uint32 kGroupTitle   = 0xff4a4740;
 
-    static constexpr juce::uint32 kKnobBodyDark = 0xff1a1a30;
-    static constexpr juce::uint32 kKnobBodyLite = 0xff2a2a48;
-    static constexpr juce::uint32 kKnobRimDark  = 0xff303050;
-    static constexpr juce::uint32 kKnobRimLite  = 0xff505078;
-    static constexpr juce::uint32 kPointer      = 0xffe8f4ff;
+    static constexpr juce::uint32 kKnobBodyDark = 0xffe8e4dd;
+    static constexpr juce::uint32 kKnobBodyLite = 0xffffffff;
+    static constexpr juce::uint32 kKnobRimDark  = 0xffc4c0b9;
+    static constexpr juce::uint32 kKnobRimLite  = 0xffffffff;
+    static constexpr juce::uint32 kPointer      = 0xff3f7fa8;
 
     /** Editor sets this on `bendRangeKnob` so we can shrink only its rotary radius in `getSliderLayout`. */
     static constexpr const char* bendRangeSliderName = "SolBendRangeKnob";
@@ -56,15 +59,16 @@ public:
     static constexpr const char* solKeyNoteButtonProperty = "solKeyNote";
 
     //--------------------------------------------------------------------------
+    /** Brand typeface (2026-07-27, Gard). Times New Roman is present on
+        Windows and macOS; on Linux the metric-compatible Liberation Serif is
+        the usual substitute, and JUCE falls back to the default serif if
+        neither is installed. Referenced everywhere rather than hardcoded, so
+        the whole app moves together if this changes. */
+    static constexpr const char* kBrandTypeface = "Times New Roman";
+
     SolLookAndFeel()
     {
-       #if JUCE_WINDOWS
-        setDefaultSansSerifTypefaceName ("Segoe UI");
-       #elif JUCE_MAC
-        setDefaultSansSerifTypefaceName ("Lucida Grande");
-       #else
-        setDefaultSansSerifTypefaceName ("Sans");
-       #endif
+        setDefaultSansSerifTypefaceName (kBrandTypeface);
 
         // Sliders
         setColour (juce::Slider::rotarySliderFillColourId,    juce::Colour (kAccentArc));
@@ -108,17 +112,18 @@ public:
 
     juce::Font getTitleFont (float h) const
     {
-        return juce::Font (juce::FontOptions ("Arial", h, juce::Font::bold));
+        return juce::Font (juce::FontOptions (kBrandTypeface, h, juce::Font::plain));
     }
 
-    juce::Font getBodyFont (float h, bool bold = false) const
+    /** The `bold` argument is retained for call-site compatibility but ignored:
+        Sol is unbolded Times New Roman throughout (Gard, 2026-07-28). */
+    juce::Font getBodyFont (float h, bool = false) const
     {
-        return juce::Font (juce::FontOptions ("Arial", h,
-                                              bold ? juce::Font::bold : juce::Font::plain));
+        return juce::Font (juce::FontOptions (kBrandTypeface, h, juce::Font::plain));
     }
 
-    juce::Font getLabelFont (juce::Label&) override          { return getBodyFont (12.0f, true); }
-    juce::Font getComboBoxFont (juce::ComboBox&) override    { return getBodyFont (12.0f, true); }
+    juce::Font getLabelFont (juce::Label&) override          { return getBodyFont (12.0f); }
+    juce::Font getComboBoxFont (juce::ComboBox&) override    { return getBodyFont (12.0f); }
 
     /** ComboBox popups default to `minimumWidth = box width`; a very narrow Key control used to
         trigger multi-column menu layout bugs in some hosts. Force a sane minimum and one column. */

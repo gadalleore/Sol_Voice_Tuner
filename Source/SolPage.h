@@ -30,7 +30,7 @@ public:
 
         title.setText (titleText, juce::dontSendNotification);
         title.setJustificationType (juce::Justification::centred);
-        title.setFont (juce::Font (juce::FontOptions (18.0f, juce::Font::bold)));
+        title.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 18.0f, juce::Font::plain)));
         title.setColour (juce::Label::textColourId, juce::Colour (SolLookAndFeel::kTitleHi));
         addAndMakeVisible (title);
 
@@ -116,7 +116,7 @@ private:
             g.strokePath (chevron, juce::PathStrokeType (2.2f,
                           juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-            g.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)));
+            g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 12.0f, juce::Font::plain)));
             const juce::String letters ("BACK");
             for (int i = 0; i < letters.length(); ++i)
                 g.drawText (letters.substring (i, i + 1),
@@ -141,7 +141,7 @@ private:
     {
         l.setText (text, juce::dontSendNotification);
         l.setJustificationType (juce::Justification::centred);
-        l.setFont (juce::Font (juce::FontOptions (10.5f, juce::Font::bold)));
+        l.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 10.5f, juce::Font::plain)));
         l.setColour (juce::Label::textColourId,
                      juce::Colour (SolLookAndFeel::kLabelAlt).withAlpha (0.5f));
         addAndMakeVisible (l);

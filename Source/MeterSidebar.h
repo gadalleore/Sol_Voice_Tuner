@@ -2,7 +2,7 @@
     MeterSidebar.h
     --------------
     63C-18: always-visible metering column on the right edge of the window,
-    per Gard's sketch #3. Lives OUTSIDE the PageStack (owned by PluginEditor),
+    per Giuseppe's sketch #3. Lives OUTSIDE the PageStack (owned by PluginEditor),
     so it stays on screen on every page. Top to bottom:
 
         Volume knob

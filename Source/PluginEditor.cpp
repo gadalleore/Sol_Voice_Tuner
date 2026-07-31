@@ -35,13 +35,13 @@ PitchCorrectorAudioProcessorEditor::PitchCorrectorAudioProcessorEditor (
     basePlate.setChamfer     (kChamfer);
     basePlate.setStrokeWidth (kPlateStroke);   // a drawn edge, not a hairline
     basePlate.setPadding     (32.0f);
-    // Solid black (Gard, 2026-07-31): the grey read as tentative next to the
+    // Solid black (Giuseppe, 2026-07-31): the grey read as tentative next to the
     // ring and the meters, which are both full-strength ink. The close X tracks
     // this colour too, so it goes black with the border.
     basePlate.setOutlineColour (juce::Colour (SolLookAndFeel::kTitleHi));
     basePlate.setContentBleedsLeft (true);  // the wheel runs to the window edge
     // No wordmark. The product carries no name on its face — the interface is
-    // the identity (Gard, 2026-07-28).
+    // the identity (Giuseppe, 2026-07-28).
     basePlate.setPanelFill   (juce::Colour (SolLookAndFeel::kBackground));
 
     // The X in the chamfer closes the whole thing.
@@ -164,7 +164,7 @@ void PitchCorrectorAudioProcessorEditor::resized()
     //
     // The shell is deliberately NOT repositioned here. It is a window in its
     // own right: moving the host's plugin window must leave the UI where the
-    // user put it (Gard, 2026-07-28).
+    // user put it (Giuseppe, 2026-07-28).
 }
 
 void PitchCorrectorAudioProcessorEditor::mouseUp (const juce::MouseEvent&)

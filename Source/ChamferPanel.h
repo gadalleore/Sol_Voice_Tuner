@@ -4,7 +4,7 @@
     The base plate every Sol panel is built on: a straight-edged rectangle with
     the top-right corner sliced off on a diagonal.
 
-    Ported from Gard's React/SVG prototype (`ChamferPanel.tsx`, 2026-07-27).
+    Ported from Giuseppe's React/SVG prototype (`ChamferPanel.tsx`, 2026-07-27).
     The prototype measured the element and stroked a single SVG path in real
     pixels so the outline stayed perfectly even at any size — the JUCE version
     does the same by rebuilding the path in paint() from getLocalBounds(),
@@ -56,7 +56,7 @@ public:
     static constexpr juce::uint32 kLensDirtTint     = 0xff1a1a18;
     static constexpr float        kLensDirtStrength = 0.85f;
 
-    /** Gard's own dirt photograph vs the procedural marks. Kept switchable
+    /** Giuseppe's own dirt photograph vs the procedural marks. Kept switchable
         so the two can be compared directly. */
     void setUsePhotoDirt (bool shouldUsePhoto)
     {
@@ -81,7 +81,7 @@ public:
     static constexpr juce::uint32 kDefaultWatermark = 0xffd8d5cf; // light grey
 
     /** Watermark height as a fraction of the plate's shorter edge. Small and
-        discreet — it is a maker's mark, not a headline (Gard, 2026-07-28). */
+        discreet — it is a maker's mark, not a headline (Giuseppe, 2026-07-28). */
     static constexpr float kWatermarkHeightRatio = 0.042f;
 
     /** Watermark never grows past this fraction of the plate's inner width,
@@ -387,7 +387,7 @@ private:
         {
             if (usePhotoDirt)
             {
-                // Gard's own dirt plate, embedded. It is a positive — dark
+                // Giuseppe's own dirt plate, embedded. It is a positive — dark
                 // marks on a light field — so the conversion inverts: darkness
                 // becomes opacity, and the paper it was shot on drops out.
                 const auto photo = juce::ImageCache::getFromMemory (
@@ -502,7 +502,7 @@ private:
     // Very light: texture you notice only if you look for it.
     float grainAlpha     = 0.0f;   // clinical: no degradation
     float vignetteAlpha  = 0.0f;
-    float lensDirtAlpha  = 0.0f;   // smudges off (Gard, 2026-07-31) — the plate
+    float lensDirtAlpha  = 0.0f;   // smudges off (Giuseppe, 2026-07-31) — the plate
                                    // reads cleaner without them. setLensDirtAlpha()
                                    // brings them back if we want to compare.
     bool  bleedLeft      = false;

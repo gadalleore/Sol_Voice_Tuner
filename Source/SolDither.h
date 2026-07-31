@@ -1,7 +1,7 @@
 /*
     SolDither.h
     -----------
-    Shared dither textures for Sol's look (Gard, 2026-07-28).
+    Shared dither textures for Sol's look (Giuseppe, 2026-07-28).
 
     Two tiles, both generated once and cached:
 

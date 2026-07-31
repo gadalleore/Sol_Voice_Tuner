@@ -98,11 +98,11 @@ juce_generate_juce_header(SolVoiceTuner)
 # ----------------------------------------------------------------------------
 # Embedded assets
 # ----------------------------------------------------------------------------
-# Lens-dirt texture: Gard's own original work (2026-07-28). Not licensed from
+# Lens-dirt texture: Giuseppe's own original work (2026-07-28). Not licensed from
 # anyone, so there is nothing to attribute, nothing to renew and no terms that
 # can change — which is exactly why it was made rather than sourced.
 #
-# The 63C mark ships as Gard drew it — white on transparent, for dark surfaces.
+# The 63C mark ships as Giuseppe drew it — white on transparent, for dark surfaces.
 # Sol's plate is white, so BrandMark recolours it to ink at load rather than a
 # second, inverted copy of the file being kept in step by hand.
 juce_add_binary_data(SolVoiceTunerAssets

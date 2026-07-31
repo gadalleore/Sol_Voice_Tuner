@@ -1,7 +1,7 @@
 /*
     EdgeMeters.h
     ------------
-    Always-on output metering, pinned to the plate's right edge (Gard,
+    Always-on output metering, pinned to the plate's right edge (Giuseppe,
     2026-07-31). Deliberately the least UI a meter can be:
 
       - no frame, no track, no scale, no caption. Nothing is drawn for a

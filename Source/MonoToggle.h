@@ -1,7 +1,7 @@
 /*
     MonoToggle.h
     ------------
-    A toggle that is nothing but its own name (Gard, 2026-07-31).
+    A toggle that is nothing but its own name (Giuseppe, 2026-07-31).
 
         off   the words in black, on bare plate. No box, no check, no lamp —
               at rest it reads as a label, because an unset switch has nothing

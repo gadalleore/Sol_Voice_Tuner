@@ -1,7 +1,7 @@
 /*
     VolumeArc.h
     -----------
-    The volume control, from Gard's sketch (2026-07-31). No knob body, no
+    The volume control, from Giuseppe's sketch (2026-07-31). No knob body, no
     track, no readout — the value IS the drawing:
 
         at minimum   a bare line, pointing where the control is set;
@@ -30,7 +30,7 @@ public:
     static constexpr int kWidth = 92;
 
     /** Diameter of the dial, and the air between the arc and its label. The
-        gap is half the column's spacing unit (Gard, 2026-07-31): dial, label
+        gap is half the column's spacing unit (Giuseppe, 2026-07-31): dial, label
         and the toggle under them are one group, and they sit tighter to each
         other than the group does to the bars and the mark below. */
     static constexpr float kDial        = 62.0f;

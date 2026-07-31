@@ -6,7 +6,7 @@
     leaves at the bottom, matching the Home wheel orientation.
 
     63C-17: back is a slim full-height VERTICAL BAR on the left edge of the
-    window (per Gard's review) — the wheel's flat edge starts just to its
+    window (per Giuseppe's review) — the wheel's flat edge starts just to its
     right. Every drilled-in page gets the bar automatically; Home is not a
     SolPage, so the root shows nothing.
 

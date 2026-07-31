@@ -63,7 +63,7 @@ public:
     static constexpr const char* solKeyNoteButtonProperty = "solKeyNote";
 
     //--------------------------------------------------------------------------
-    /** Brand typeface (2026-07-27, Gard). Times New Roman is present on
+    /** Brand typeface (2026-07-27, Giuseppe). Times New Roman is present on
         Windows and macOS; on Linux the metric-compatible Liberation Serif is
         the usual substitute, and JUCE falls back to the default serif if
         neither is installed. Referenced everywhere rather than hardcoded, so
@@ -120,7 +120,7 @@ public:
     }
 
     /** The `bold` argument is retained for call-site compatibility but ignored:
-        Sol is unbolded Times New Roman throughout (Gard, 2026-07-28). */
+        Sol is unbolded Times New Roman throughout (Giuseppe, 2026-07-28). */
     juce::Font getBodyFont (float h, bool = false) const
     {
         return juce::Font (juce::FontOptions (kBrandTypeface, h, juce::Font::plain));

@@ -1,7 +1,7 @@
 /*
     SpectrumStrip.h
     ---------------
-    Black spectrum analyser across the foot of the plate (Gard, 2026-07-31).
+    Black spectrum analyser across the foot of the plate (Giuseppe, 2026-07-31).
     The analysis is Spacedust's, ported over: 2048-point FFT, Hann window, a
     log-frequency axis so every octave gets equal width, and heavy temporal
     averaging that rises faster than it falls so a held note reads as a steady
@@ -139,7 +139,7 @@ public:
         // Dividing the width into a fractional column width and rounding each
         // column's left edge independently makes the gaps alternate between 1
         // and 2 px — at a glance the bars look like they clump into uneven
-        // groups (Gard, 2026-07-31). An integer pitch gives every bar the same
+        // groups (Giuseppe, 2026-07-31). An integer pitch gives every bar the same
         // width and every gap the same size, and the few pixels that do not
         // divide evenly are split between the two ends where nothing lines up
         // against them.

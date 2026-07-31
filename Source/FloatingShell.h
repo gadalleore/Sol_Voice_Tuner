@@ -53,7 +53,7 @@ public:
     }
 
     /** Fixes the UI's design size and makes the corner a ZOOM rather than a
-        reshape (Gard, 2026-07-31).
+        reshape (Giuseppe, 2026-07-31).
 
         Two halves to that. The constrainer gets a fixed aspect ratio, so the
         corner can no longer stretch the window into a different shape — width

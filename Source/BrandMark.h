@@ -1,7 +1,7 @@
 /*
     BrandMark.h
     -----------
-    The 63C mark, at the foot of the right-hand column (Gard, 2026-07-31).
+    The 63C mark, at the foot of the right-hand column (Giuseppe, 2026-07-31).
 
     The asset is white on transparent — drawn for dark surfaces — and Sol's
     plate is white, so it would be invisible as shipped. Rather than keep a

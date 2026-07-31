@@ -6,7 +6,7 @@
 
       * The wheel is a HALF WHEEL: its centre sits on the left edge of the
         component, so the visible part is a semicircle bulging rightward
-        (per Gard's sketches). Items are pills on the rim, top = input,
+        (per Giuseppe's sketches). Items are pills on the rim, top = input,
         bottom = output = signal order.
       * The visible half of the hub holds the palette of available items;
         pulling one out onto the rim activates it in that slot (draggable
@@ -216,12 +216,12 @@ public:
         //
         // The DRAWN circles are pulled back toward the left edge by ringScale
         // so the item labels — which stay out at the full slot radius — sit
-        // clear of them instead of on top (Gard, 2026-07-28). Slot geometry
+        // clear of them instead of on top (Giuseppe, 2026-07-28). Slot geometry
         // and hit-testing are unaffected; this is purely what gets painted.
         {
             // ---- The orb: nothing at all ------------------------------------
             //
-            // It used to carry a radial rim shadow. Gone (Gard, 2026-07-31):
+            // It used to carry a radial rim shadow. Gone (Giuseppe, 2026-07-31):
             // the orb is now bare plate, so the trace runs on clean white and
             // the ring below is the only thing describing the shape. The orb
             // still EXISTS as geometry — it is what sizes and places the
@@ -258,7 +258,7 @@ public:
                 g.strokePath (rimPath, juce::PathStrokeType (ringThickness));
             }
 
-            // No accent arc: the rim reads from the items alone (Gard, 2026-07-28).
+            // No accent arc: the rim reads from the items alone (Giuseppe, 2026-07-28).
         }
 
         // Slots on the rim (culled to the visible arc).
@@ -273,7 +273,7 @@ public:
             const bool isTarget = dragging() && i == hitSlot (dragPos);
             const bool hovered  = ! dragging() && i == hoveredSlot;
 
-            // No spokes: items sit on the rim unattached (Gard, 2026-07-28).
+            // No spokes: items sit on the rim unattached (Giuseppe, 2026-07-28).
 
             if (occupied)
             {
@@ -361,7 +361,7 @@ public:
         }
 
         // Drag ghost on top of everything. Bare text, like the items — no pill
-        // behind it (Gard, 2026-07-28: no ovals around the words).
+        // behind it (Giuseppe, 2026-07-28: no ovals around the words).
         if (dragging())
         {
             auto ghost = pillAround (dragPos);
@@ -686,7 +686,7 @@ private:
         Centring it on the slot pushed the top and bottom labels off the left
         edge — their slots sit near the wheel's centre, which is on that edge.
         Anchoring left keeps every label on screen AND preserves the stagger
-        that makes them read as following the arc (Gard, 2026-07-28). */
+        that makes them read as following the arc (Giuseppe, 2026-07-28). */
     //==========================================================================
     // Motion trails
     //==========================================================================

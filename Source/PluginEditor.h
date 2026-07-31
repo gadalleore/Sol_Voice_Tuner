@@ -42,7 +42,7 @@ public:
     void mouseUp (const juce::MouseEvent&) override;
 
 private:
-    /** One line weight for the whole face (Gard, 2026-07-31): the plate's
+    /** One line weight for the whole face (Giuseppe, 2026-07-31): the plate's
         border, the ring around the Lissajous and the volume arc are all drawn
         at this, so the interface reads as one hand. The plate insets its path
         by half of this, so the full width is visible rather than half-clipped
@@ -100,7 +100,7 @@ private:
             r = r.withTrimmedTop (juce::roundToInt (getChamfer()));
 
             // A full bar's width of air between the column and the right
-            // border, on top of the plate's own padding (Gard, 2026-07-31).
+            // border, on top of the plate's own padding (Giuseppe, 2026-07-31).
             r = r.withTrimmedRight (EdgeMeters::kBarWidth);
 
             auto strip = r.removeFromRight (EdgeMeters::kWidth);
@@ -111,7 +111,7 @@ private:
 
             // Volume hangs from the chamfer by the column's own spacing unit,
             // so the top of the stack is framed exactly as the foot of it is
-            // (Gard, 2026-07-31). The cut is a diagonal, so the edge it hangs
+            // (Giuseppe, 2026-07-31). The cut is a diagonal, so the edge it hangs
             // from is measured where the dial's own right side passes under it
             // — not at the chamfer's full height, which is only ever reached in
             // the very corner.
@@ -170,7 +170,7 @@ private:
         }
 
     private:
-        /** The column's spacing unit (Gard, 2026-07-31): the chamfer down to
+        /** The column's spacing unit (Giuseppe, 2026-07-31): the chamfer down to
             the dial, the bars down to the mark, and the mark down to the foot
             of the window. */
         static constexpr int kColumnGap = 30;
@@ -216,12 +216,12 @@ private:
     static constexpr int kScopeFps = 60;
 
     //==========================================================================
-    // Shake (Gard, 2026-07-31): the window is thrown around by whatever is
+    // Shake (Giuseppe, 2026-07-31): the window is thrown around by whatever is
     // coming through it, and the plate's dither smears in the direction of the
     // throw. Deliberately overcooked to start with — these four are the dials.
     //==========================================================================
     /** Peak displacement in px at full scale. Walked down from the first pass
-        at 28 (Gard, 2026-07-31): halved, then another quarter off. The throw
+        at 28 (Giuseppe, 2026-07-31): halved, then another quarter off. The throw
         was right in character from the start, just too far. */
     static constexpr float kShakeMax     = 10.5f;
     static constexpr float kShakeRelease = 0.72f;   // per frame

@@ -17,6 +17,7 @@
 
 #include <JuceHeader.h>
 
+#include "SolDither.h"
 #include "SolLookAndFeel.h"
 
 class LissajousDisplay final : public juce::Component
@@ -62,6 +63,12 @@ public:
         for (int i = 0; i < n; i += stride)
             points.add ({ l[i], r[i] });
 
+        // Keep a short history so the trace leaves a rainbow dither behind it.
+        history.add (points);
+
+        while (history.size() > kHistoryLength)
+            history.remove (0);
+
         repaint();
     }
 
@@ -85,27 +92,39 @@ public:
             g.drawLine (area.getX(), area.getCentreY(), area.getRight(), area.getCentreY(), 0.5f);
         }
 
-        if (points.size() > 1)
+        // Older sweeps first: RGB smear marking where the trace has just been.
+        // Each older sweep is nudged further out along its own radius, so the
+        // channels separate outward the way a visualiser's bloom does.
+        for (int h = 0; h < history.size() - 1; ++h)
         {
-            const float cx = area.getCentreX();
-            const float cy = area.getCentreY();
-            const float scale = juce::jmin (area.getWidth(), area.getHeight()) * 0.5f * 0.9f;
+            const auto trace = buildTrace (history.getReference (h), area);
 
-            juce::Path p;
-            bool first = true;
+            if (trace.isEmpty())
+                continue;
 
-            for (const auto& pt : points)
-            {
-                // Goniometer rotation: mono = vertical, anti-phase = horizontal.
-                const float x = cx + (pt.x - pt.y) * 0.7071f * scale;
-                const float y = cy - (pt.x + pt.y) * 0.7071f * scale;
+            juce::Path stroked;
+            juce::PathStrokeType (traceThickness * 1.4f).createStrokedPath (stroked, trace);
 
-                if (first) { p.startNewSubPath (x, y); first = false; }
-                else       { p.lineTo (x, y); }
-            }
+            const float recency = (float) (h + 1) / (float) history.size();
+            const float spread  = (1.0f - recency) * kTrailSpread;
 
+            // Cycle the channel per sweep so successive frames of the trace
+            // leave interleaved red/green/blue rather than one flat ghost.
+            static constexpr SolDither::Chan order[] = {
+                SolDither::Chan::r, SolDither::Chan::g, SolDither::Chan::b
+            };
+
+            SolDither::fillPathChannel (g, stroked, { spread, -spread },
+                                        order[h % 3], recency * kTrailAlpha);
+        }
+
+        // The live trace, solid on top.
+        const auto current = buildTrace (points, area);
+
+        if (! current.isEmpty())
+        {
             g.setColour (traceColour.withAlpha (traceAlpha));
-            g.strokePath (p, juce::PathStrokeType (traceThickness));
+            g.strokePath (current, juce::PathStrokeType (traceThickness));
         }
 
         if (showFrame)
@@ -116,9 +135,41 @@ public:
     }
 
 private:
-    static constexpr int kMaxPoints = 512;
+    static constexpr int   kMaxPoints      = 512;
+    static constexpr int   kHistoryLength  = 5;
+    static constexpr float kTrailAlpha     = 0.6f;
+    static constexpr float kTrailSpread    = 3.5f;   // px of channel separation
+
+    /** Maps a sweep of L/R samples into a goniometer path in `area`. */
+    juce::Path buildTrace (const juce::Array<juce::Point<float>>& src,
+                           juce::Rectangle<float> area) const
+    {
+        juce::Path p;
+
+        if (src.size() < 2)
+            return p;
+
+        const float cx = area.getCentreX();
+        const float cy = area.getCentreY();
+        const float scale = juce::jmin (area.getWidth(), area.getHeight()) * 0.5f * 0.9f;
+
+        bool first = true;
+
+        for (const auto& pt : src)
+        {
+            // Goniometer rotation: mono = vertical, anti-phase = horizontal.
+            const float x = cx + (pt.x - pt.y) * 0.7071f * scale;
+            const float y = cy - (pt.x + pt.y) * 0.7071f * scale;
+
+            if (first) { p.startNewSubPath (x, y); first = false; }
+            else       { p.lineTo (x, y); }
+        }
+
+        return p;
+    }
 
     juce::Array<juce::Point<float>> points;
+    juce::Array<juce::Array<juce::Point<float>>> history;
 
     juce::Colour traceColour  { juce::Colours::black };
     float        traceAlpha     = 0.85f;

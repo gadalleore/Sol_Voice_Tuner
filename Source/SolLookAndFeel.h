@@ -26,31 +26,35 @@ public:
     //--------------------------------------------------------------------------
     // Brand palette (also exposed for the editor's paint())
     //--------------------------------------------------------------------------
-    // Sun-white frutiger aero (2026-07-27). Names are ROLES, so retuning the
-    // values here re-themes everything that reads them. Warm off-whites plus
-    // a sky-blue accent: white like the sun, not clinical white.
-    static constexpr juce::uint32 kBackground   = 0xfff7f5f0; // warm page white
-    static constexpr juce::uint32 kPanel        = 0xfff2efe9; // panel fill
-    static constexpr juce::uint32 kPanelLight   = 0xffffffff; // raised panel
-    static constexpr juce::uint32 kOutline      = 0xffcfccc6; // borders (matches the plate)
-    static constexpr juce::uint32 kOutlineHi    = 0xff5aa9e6; // active border
+    // White paper, black ink (2026-07-28).
+    //
+    // Bright neutral surface, genuinely black text, and lens dirt as the only
+    // texture.
+    //
+    // Names are ROLES, so retuning the values re-themes everything that reads
+    // them.
+    static constexpr juce::uint32 kBackground   = 0xffffffff; // pure white
+    static constexpr juce::uint32 kPanel        = 0xffececea; // panel fill
+    static constexpr juce::uint32 kPanelLight   = 0xffffffff;
+    static constexpr juce::uint32 kOutline      = 0xffc6c6c2; // borders
+    static constexpr juce::uint32 kOutlineHi    = 0xff868682; // active border
 
-    static constexpr juce::uint32 kAccentArc    = 0xff5aa9e6; // sky blue
-    static constexpr juce::uint32 kAccentGlow   = 0xff9ccef0; // softer sky glow
-    static constexpr juce::uint32 kAccentToggle = 0xffdcecf8; // toggle ON bg
+    static constexpr juce::uint32 kAccentArc    = 0xff868682; // no colour accent
+    static constexpr juce::uint32 kAccentGlow   = 0xffb4b4b0;
+    static constexpr juce::uint32 kAccentToggle = 0xffe2e2de;
 
-    static constexpr juce::uint32 kLabel        = 0xff6b6863; // warm grey text
-    static constexpr juce::uint32 kLabelAlt     = 0xff8a867f;
-    static constexpr juce::uint32 kValue        = 0xff3f7fa8;
-    static constexpr juce::uint32 kValueAlt     = 0xff5aa9e6;
-    static constexpr juce::uint32 kTitleHi      = 0xff2f2c28; // near-black, warm
-    static constexpr juce::uint32 kGroupTitle   = 0xff4a4740;
+    static constexpr juce::uint32 kLabel        = 0xff56564f; // mid grey text
+    static constexpr juce::uint32 kLabelAlt     = 0xff76766f;
+    static constexpr juce::uint32 kValue        = 0xff2e2e2b;
+    static constexpr juce::uint32 kValueAlt     = 0xff56564f;
+    static constexpr juce::uint32 kTitleHi      = 0xff0d0d0c; // black ink
+    static constexpr juce::uint32 kGroupTitle   = 0xff2e2e2b;
 
-    static constexpr juce::uint32 kKnobBodyDark = 0xffe8e4dd;
-    static constexpr juce::uint32 kKnobBodyLite = 0xffffffff;
-    static constexpr juce::uint32 kKnobRimDark  = 0xffc4c0b9;
+    static constexpr juce::uint32 kKnobBodyDark = 0xffe4e4e0;
+    static constexpr juce::uint32 kKnobBodyLite = 0xfffbfbfa;
+    static constexpr juce::uint32 kKnobRimDark  = 0xffbdbdb8;
     static constexpr juce::uint32 kKnobRimLite  = 0xffffffff;
-    static constexpr juce::uint32 kPointer      = 0xff3f7fa8;
+    static constexpr juce::uint32 kPointer      = 0xff2e2e2b;
 
     /** Editor sets this on `bendRangeKnob` so we can shrink only its rotary radius in `getSliderLayout`. */
     static constexpr const char* bendRangeSliderName = "SolBendRangeKnob";

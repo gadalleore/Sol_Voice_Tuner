@@ -37,9 +37,12 @@
 
 #include <JuceHeader.h>
 
+#include "SolDither.h"
 #include "SolLookAndFeel.h"
+#include "SpectrumStrip.h"
 
 class WheelComponent final : public juce::Component,
+                             public  SpectrumStrip::Inkable,
                              private juce::Timer
 {
 public:
@@ -76,6 +79,61 @@ public:
         1.0 puts the rim exactly under the labels; smaller values pull the
         circles toward the left edge so the labels stand clear of them. */
     void setRingScale (float s)           { ringScale = juce::jlimit (0.05f, 1.0f, s); repaint(); }
+
+    /** Just the item labels, flat, in one colour — the spectrum strip uses
+        this to knock the type back out of its bars. A stencil, not a second
+        paint: no rim, no trails, no dashed empty slots. */
+    void paintInk (juce::Graphics& g, juce::Colour ink) override
+    {
+        computeGeometry();
+
+        g.setColour (ink);
+
+        for (int i = 0; i < numSlots; ++i)
+            if (slotVisible (i) && slotType (i) != emptyTypeId)
+                g.fillPath (labelPath (i));
+    }
+
+    /** How far the whole window was just thrown, in plate pixels, pointing
+        BACK the way it came (see paintTrail's sign convention).
+
+        Shaking the window moves everything on it together, so nothing moves
+        relative to the plate and the ordinary motion trails see no travel at
+        all. Handing them the window's own displacement is what makes the
+        smear follow the throw. */
+    void setShakeMotion (juce::Point<float> m)
+    {
+        if (m == shakeMotion)
+            return;
+
+        shakeMotion = m;
+        repaint();
+    }
+
+    /** Weight of the ring around the orb. Set from the plate so the circle is
+        drawn with the same line as the border around it. */
+    void setRingThickness (float t)
+    {
+        ringThickness = juce::jmax (0.1f, t);
+        repaint();
+    }
+
+    /** Orb size, as a multiple of the hub radius. */
+    void setOrbScale (float s)
+    {
+        orbScale = juce::jlimit (0.05f, 2.0f, s);
+        layoutHubContent();
+        repaint();
+    }
+
+    /** How far the orb sits in from the wheel axis, as a fraction of the rim
+        radius. 0 leaves it centred on the axis (and so half off the panel). */
+    void setOrbOffsetRatio (float r)
+    {
+        orbOffsetRatio = juce::jlimit (0.0f, 1.0f, r);
+        layoutHubContent();
+        repaint();
+    }
 
     /** Component shown inside the hub circle — the wheel's centre. Not owned.
         The wheel's centre sits on the left edge, so only the right half of the
@@ -124,11 +182,17 @@ public:
         const juce::Point<float> p ((float) x, (float) y);
         const float d = p.getDistanceFrom (centre);
 
-        if (d <= hubRadius())               // hub holds the palette
+        if (p.getDistanceFrom (orbCentre()) <= orbRadius())   // the orb
             return true;
 
-        if (std::abs (d - radius) <= pillH) // rim band where the pills live
+        if (std::abs (d - radius) <= pillH) // rim band where the slots sit
             return true;
+
+        // The labels run rightward from their slot, well past the rim, so the
+        // rim band alone leaves most of each word unhoverable.
+        for (int i = 0; i < numSlots; ++i)
+            if (slotVisible (i) && pillAround (slotCentre (i)).contains (p))
+                return true;
 
         // Hover-scroll strips, but only when there is actually a chain to
         // scroll — otherwise they would eat drags along the top and bottom.
@@ -155,19 +219,46 @@ public:
         // clear of them instead of on top (Gard, 2026-07-28). Slot geometry
         // and hit-testing are unaffected; this is purely what gets painted.
         {
-            const float rimR = radius * ringScale;
+            // ---- The orb: nothing at all ------------------------------------
+            //
+            // It used to carry a radial rim shadow. Gone (Gard, 2026-07-31):
+            // the orb is now bare plate, so the trace runs on clean white and
+            // the ring below is the only thing describing the shape. The orb
+            // still EXISTS as geometry — it is what sizes and places the
+            // Lissajous and the ring — it simply is not painted.
 
-            g.setColour (juce::Colour (SolLookAndFeel::kOutline).withAlpha (0.35f));
-            g.drawEllipse (centre.x - rimR, centre.y - rimR,
-                           rimR * 2.0f, rimR * 2.0f, 1.2f);
+            // ---- The outer ring: one crisp, high-contrast line --------------
+            //
+            // A single flat stroke, no gradient and no dither on it. Fading a
+            // structural line out along its length is a decorative move; sharp
+            // and minimal wants the geometry stated once, cleanly.
+            {
+                // Concentric with the ORB, not the wheel axis. Anchored to the
+                // axis it could only ever pass beside the offset orb; ringing
+                // the orb is what makes the two read as one object.
+                const auto  rc = orbCentre();
+                const float rR = orbRadius() * kRingOrbGap;
+
+                juce::Path rimPath;
+                rimPath.addEllipse (rc.x - rR, rc.y - rR, rR * 2.0f, rR * 2.0f);
+
+                // Smeared behind itself while the window is being thrown. The
+                // streak fills whatever shape it is given, so it takes the
+                // ring's OUTLINE — handing it the ellipse would stamp a solid
+                // disc of stipple across the middle of the plate.
+                if (shakeMotion.getDistanceFromOrigin() >= kTrailMinSmear)
+                {
+                    juce::Path stroked;
+                    juce::PathStrokeType (ringThickness).createStrokedPath (stroked, rimPath);
+
+                    SolDither::streakRgb (g, stroked, shakeMotion, kTrailSteps, kTrailAlpha);
+                }
+
+                g.setColour (juce::Colour (kRingLight));
+                g.strokePath (rimPath, juce::PathStrokeType (ringThickness));
+            }
 
             // No accent arc: the rim reads from the items alone (Gard, 2026-07-28).
-
-            const float hubR = hubRadius() * ringScale;
-            g.setColour (juce::Colour (SolLookAndFeel::kPanel).withAlpha (0.55f));
-            g.fillEllipse (centre.x - hubR, centre.y - hubR, hubR * 2.0f, hubR * 2.0f);
-            g.setColour (juce::Colour (SolLookAndFeel::kOutline).withAlpha (0.5f));
-            g.drawEllipse (centre.x - hubR, centre.y - hubR, hubR * 2.0f, hubR * 2.0f, 1.0f);
         }
 
         // Slots on the rim (culled to the visible arc).
@@ -191,18 +282,19 @@ public:
                 auto pill = pillAround (pos);
 
                 const bool dimmed = dragSource == DragSource::slot && dragFromSlot == i;
-                g.setColour (juce::Colour ((isTarget || hovered) ? SolLookAndFeel::kOutlineHi
-                                                                 : SolLookAndFeel::kTitleHi)
+
+                // Laid out as a path once, then reused: the trail just draws
+                // the same shape translated back to where the label was on
+                // earlier frames.
+                const auto textPath = labelPath (i);
+
+                // Rainbow dither wherever this label has just been.
+                paintTrail (g, textPath, pos, trailFor (i));
+
+                g.setColour (juce::Colour (hovered ? kHoverText
+                                                   : SolLookAndFeel::kTitleHi)
                                  .withAlpha (dimmed ? 0.35f : 1.0f));
-
-                // Hovered items swell very slightly — enough to feel alive
-                // without shifting the layout.
-                const float h = hovered ? itemFontHeight * kHoverFontScale
-                                        : itemFontHeight;
-
-                g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface,
-                                                          h, juce::Font::plain)));
-                g.drawText (nameForType (type), pill, juce::Justification::centredLeft);
+                g.fillPath (textPath);
             }
             else
             {
@@ -268,15 +360,12 @@ public:
             g.restoreState();
         }
 
-        // Drag ghost on top of everything.
+        // Drag ghost on top of everything. Bare text, like the items — no pill
+        // behind it (Gard, 2026-07-28: no ovals around the words).
         if (dragging())
         {
             auto ghost = pillAround (dragPos);
-            g.setColour (juce::Colour (SolLookAndFeel::kAccentToggle).withAlpha (0.85f));
-            g.fillRoundedRectangle (ghost, ghost.getHeight() * 0.5f);
-            g.setColour (juce::Colour (SolLookAndFeel::kOutlineHi));
-            g.drawRoundedRectangle (ghost, ghost.getHeight() * 0.5f, 1.6f);
-            g.setColour (juce::Colour (SolLookAndFeel::kTitleHi));
+            g.setColour (juce::Colour (SolLookAndFeel::kTitleHi).withAlpha (0.75f));
             g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 13.0f, juce::Font::plain)));
             g.drawText (nameForType (dragTypeId), ghost, juce::Justification::centred);
         }
@@ -476,10 +565,24 @@ private:
                 hoveredSlot = -1;
         }
 
+        // Keep ticking while any smear is still draining, otherwise the last
+        // frame of trail would freeze on screen when motion stops.
+        if (trailsDraining())
+            busy = true;
+
         if (! busy && edgeScrollDir == 0.0f)
             stopTimer();
 
         repaint();
+    }
+
+    bool trailsDraining() const
+    {
+        for (const auto& t : trails)
+            if (t.size() > 1)
+                return true;
+
+        return false;
     }
 
     //==========================================================================
@@ -524,7 +627,7 @@ private:
     {
         const auto b = getLocalBounds().toFloat();
         radius = juce::jmin (b.getHeight() * 0.52f, b.getWidth() * 0.62f);
-        centre = { b.getX() + 2.0f, b.getCentreY() };
+        centre = { b.getX(), b.getCentreY() };   // flush to the edge
 
         const float hubR = hubRadius();
         const float palW = juce::jlimit (72.0f, 150.0f, hubR - 14.0f);
@@ -584,6 +687,88 @@ private:
         edge — their slots sit near the wheel's centre, which is on that edge.
         Anchoring left keeps every label on screen AND preserves the stagger
         that makes them read as following the arc (Gard, 2026-07-28). */
+    //==========================================================================
+    // Motion trails
+    //==========================================================================
+    /** One slot's label as a filled outline, at the size it is currently drawn
+        (hover included, so a stencil taken from it lines up exactly). */
+    juce::Path labelPath (int slot)
+    {
+        const auto  pill    = pillAround (slotCentre (slot));
+        const bool  hovered = ! dragging() && slot == hoveredSlot;
+
+        // Hovered items swell very slightly — enough to feel alive without
+        // shifting the layout.
+        const float h = hovered ? itemFontHeight * kHoverFontScale
+                                : itemFontHeight;
+
+        juce::GlyphArrangement glyphs;
+        glyphs.addFittedText (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface,
+                                                             h, juce::Font::plain)),
+                              nameForType (slotType (slot)),
+                              pill.getX(), pill.getY(),
+                              pill.getWidth(), pill.getHeight(),
+                              juce::Justification::centredLeft, 1);
+
+        juce::Path p;
+        glyphs.createPath (p);
+
+        return p;
+    }
+
+    /** Position history for one slot's label, newest last. */
+    juce::Array<juce::Point<float>>& trailFor (int slot)
+    {
+        while (trails.size() <= slot)
+            trails.add ({});
+
+        return trails.getReference (slot);
+    }
+
+    /** Records where the label is now and paints the rainbow dither over the
+        positions it has just left. Nothing is drawn while the label is still,
+        so the effect only ever appears as a consequence of movement. */
+    void paintTrail (juce::Graphics& g, const juce::Path& shape,
+                     juce::Point<float> pos, juce::Array<juce::Point<float>>& history)
+    {
+        if (history.isEmpty() || pos.getDistanceFrom (history.getLast()) > kTrailMinStep)
+        {
+            history.add (pos);
+
+            while (history.size() > kTrailLength)
+                history.remove (0);
+        }
+        else if (history.size() > 1)
+        {
+            // Standing still: collapse the streak back into the label fast —
+            // two frames' worth per frame, so it is gone in a blink.
+            history.remove (0);
+
+            if (history.size() > 1)
+                history.remove (0);
+        }
+
+        // The streak spans the whole distance travelled, not one frame's worth
+        // — plus however far the window itself was just thrown.
+        const auto displacement = (history.getFirst() - pos) + shakeMotion;
+
+        if (displacement.getDistanceFromOrigin() < kTrailMinSmear)
+            return;
+
+        SolDither::streakRgb (g, shape, displacement, kTrailSteps, kTrailAlpha);
+    }
+
+    /** Radius of the orb — independent of the hub, which is a palette region. */
+    float orbRadius() const noexcept { return hubRadius() * ringScale * orbScale; }
+
+    /** The orb's centre, pushed in from the wheel axis so it clears the panel
+        edge. Offset is a fraction of the painted rim radius, so it tracks the
+        wheel's size instead of being a fixed pixel nudge. */
+    juce::Point<float> orbCentre() const noexcept
+    {
+        return { centre.x + radius * ringScale * orbOffsetRatio, centre.y };
+    }
+
     /** Fits the hub content into the visible (right) half of the hub circle. */
     void layoutHubContent()
     {
@@ -593,9 +778,9 @@ private:
         if (radius <= 0.0f)
             computeGeometry();
 
-        const float hubR = hubRadius() * ringScale;
+        const float oR = orbRadius();
 
-        if (hubR < 8.0f)
+        if (oR < 8.0f)
         {
             hubContent->setVisible (false);
             return;
@@ -603,11 +788,11 @@ private:
 
         hubContent->setVisible (true);
 
-        // Square inscribed in the visible half-disc: full height, half width,
-        // its left edge on the wheel centre.
-        const float side = hubR * 1.3f;
-        hubContent->setBounds (juce::Rectangle<float> (centre.x, centre.y - side * 0.5f,
-                                                       side, side).toNearestInt());
+        // Square inscribed in the orb, centred on the orb's own centre — which
+        // is inset from the wheel axis, so the whole thing is on screen.
+        const float side = oR * juce::MathConstants<float>::sqrt2 * 0.94f;
+        hubContent->setBounds (juce::Rectangle<float> (side, side)
+                                   .withCentre (orbCentre()).toNearestInt());
     }
 
     juce::Rectangle<float> pillAround (juce::Point<float> p) const
@@ -673,13 +858,43 @@ private:
 
     /** How much a hovered item's label grows. */
     static constexpr float kHoverFontScale = 1.02f;
+
+    /** Hovered labels go grey rather than picking up the accent colour. */
+    static constexpr juce::uint32 kHoverText = 0xff868682;  // grey on hover
+
+    // The orb's ring. The orb itself is unpainted, so this line is the whole
+    // of it — hence solid black rather than the old near-black hairline.
+    static constexpr juce::uint32 kRingLight  = 0xff0d0d0c;  // black ink
+
+    /** How far the ring sits outside the orb, as a multiple of its radius. */
+    static constexpr float kRingOrbGap        = 1.30f;
+    static constexpr float kRingDitherAlpha   = 0.14f;
+
+    // Motion trails: a visible streak while moving, gone almost immediately
+    // once the label settles.
+    static constexpr int   kTrailLength   = 8;     // frames of travel retained
+    static constexpr int   kTrailSteps    = 9;     // stamps along the streak
+    static constexpr float kTrailMinStep  = 0.9f;  // px before a ghost is kept
+    static constexpr float kTrailMinSmear = 2.5f;  // px of travel before drawing
+    static constexpr float kTrailAlpha    = 0.75f;
     static constexpr float kEdgeScrollRate = 1.4f;
 
     float pillW = 104.0f, pillH = 30.0f;
     float itemFontHeight = 13.0f;
     float ringScale      = 1.0f;
 
+    /** Overwritten by the editor to match the plate's border. */
+    float ringThickness  = 3.2f;
+
+    /** This frame's window throw, fed in by the editor. */
+    juce::Point<float> shakeMotion;
+    float orbScale       = 1.0f;
+    float orbOffsetRatio = 0.0f;
+
     juce::Component* hubContent = nullptr;
+
+    /** Per-slot label position history, for the rainbow dither trails. */
+    juce::Array<juce::Array<juce::Point<float>>> trails;
 
     int numSlots = 6;
     std::vector<Item> palette;
@@ -699,3 +914,4 @@ private:
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WheelComponent)
 };
+

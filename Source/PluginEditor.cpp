@@ -33,9 +33,15 @@ PitchCorrectorAudioProcessorEditor::PitchCorrectorAudioProcessorEditor (
     // shows through, which it could not do inside the host's opaque rect.
     // Set this to 0 for a square plate.
     basePlate.setChamfer     (kChamfer);
-    basePlate.setStrokeWidth (5.0f);
+    basePlate.setStrokeWidth (kPlateStroke);   // a drawn edge, not a hairline
     basePlate.setPadding     (32.0f);
-    basePlate.setWatermark   ("Sol Voice Tuner");
+    // Solid black (Gard, 2026-07-31): the grey read as tentative next to the
+    // ring and the meters, which are both full-strength ink. The close X tracks
+    // this colour too, so it goes black with the border.
+    basePlate.setOutlineColour (juce::Colour (SolLookAndFeel::kTitleHi));
+    basePlate.setContentBleedsLeft (true);  // the wheel runs to the window edge
+    // No wordmark. The product carries no name on its face — the interface is
+    // the identity (Gard, 2026-07-28).
     basePlate.setPanelFill   (juce::Colour (SolLookAndFeel::kBackground));
 
     // The X in the chamfer closes the whole thing.
@@ -65,7 +71,12 @@ PitchCorrectorAudioProcessorEditor::PitchCorrectorAudioProcessorEditor (
     wheel.setNumSlots (3);
     wheel.setPillSize (400.0f, 54.0f);
     wheel.setItemFontHeight (28.0f);
-    wheel.setRingScale (0.84f);     // arcs reach out close under the labels
+    wheel.setRingScale (0.62f);       // tightened to match the smaller orb
+    wheel.setRingThickness (kPlateStroke);   // same line as the border
+    wheel.setOrbScale (0.86f);        // 30% up on 0.60, then 10% again
+    wheel.setOrbOffsetRatio (0.55f);  // scaled with the orb, so the framing the
+                                      // smaller orb had is preserved — without
+                                      // it the orb hangs off the left of the plate
     wheel.emptyTypeId    = -1;      // every slot is always occupied
     wheel.itemsDraggable = false;   // Home items are fixed drill-ins
 
@@ -84,15 +95,28 @@ PitchCorrectorAudioProcessorEditor::PitchCorrectorAudioProcessorEditor (
 
     // Black goniometer trace in the wheel's hub, fed from the processor's
     // scope snapshot — the panel's first live element.
-    hubScope.setTraceColour (juce::Colours::black);
-    hubScope.setTraceAlpha (0.8f);
+    hubScope.setTraceColour (juce::Colour (SolLookAndFeel::kTitleHi));
+    hubScope.setTraceAlpha (0.85f);
     hubScope.setTraceThickness (1.1f);
     wheel.setHubContent (&hubScope);
 
     basePlate.setContent (&wheel);
 
+    // The wheel's labels survive the analyser's bars, knocked out white where
+    // a bar crosses them. Registered here rather than in the plate because the
+    // wheel is the plate's content, handed in from outside.
+    basePlate.getSpectrum().addInkable (&wheel, &wheel);
+
+    basePlate.getSpectrum().fillSamples = [this] (float* dest, int numSamples)
+    {
+        processorRef.readSpectrumHistory (dest, numSamples);
+    };
+
     shell.setContent (&basePlate);
-    shell.setSize (kShellWidth, kShellHeight);
+
+    // Not setSize: this fixes the design size AND locks the corner to uniform
+    // scaling, so the window can be zoomed but never reshaped.
+    shell.setLogicalSize (kShellWidth, kShellHeight);
     shell.showOnDesktop();
     placeShellNearStub();
 
@@ -119,14 +143,19 @@ PitchCorrectorAudioProcessorEditor::~PitchCorrectorAudioProcessorEditor()
 
 void PitchCorrectorAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (0xff1e1e1e));
+    // The stub carries no name either — just a mark. Dimmed while the UI is
+    // up, brighter when it has been dismissed, since then it is the only way
+    // back and needs to invite a click.
+    g.fillAll (juce::Colour (SolLookAndFeel::kBackground));
 
-    g.setColour (juce::Colours::white.withAlpha (0.75f));
-    g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface,
-                                              12.5f, juce::Font::plain)));
-    g.drawText (shell.isOnDesktop() ? "Sol Voice Tuner"
-                                    : "Sol Voice Tuner  -  click to show",
-                getLocalBounds(), juce::Justification::centred, false);
+    const bool showing = shell.isOnDesktop();
+    const auto centre  = getLocalBounds().toFloat().getCentre();
+
+    g.setColour (juce::Colour (SolLookAndFeel::kOutlineHi)
+                     .withAlpha (showing ? 0.30f : 0.85f));
+
+    juce::Rectangle<float> mark (kStubMarkSize, kStubMarkSize);
+    g.drawRect (mark.withCentre (centre), 1.2f);
 }
 
 void PitchCorrectorAudioProcessorEditor::resized()
@@ -151,9 +180,59 @@ void PitchCorrectorAudioProcessorEditor::mouseUp (const juce::MouseEvent&)
 
 void PitchCorrectorAudioProcessorEditor::timerCallback()
 {
-    if (shell.isOnDesktop())
-        hubScope.update (processorRef.getScopeBuffer(),
-                         processorRef.getScopeValidSamples());
+    if (! shell.isOnDesktop())
+        return;
+
+    hubScope.update (processorRef.getScopeBuffer(),
+                     processorRef.getScopeValidSamples());
+
+    // One reader only: getAndClearMeterPeak() consumes the accumulated peak,
+    // so a second poller anywhere would halve what the meters see. The shake
+    // rides on the same two numbers rather than taking a second read.
+    const float peakL = processorRef.getAndClearMeterPeak (0);
+    const float peakR = processorRef.getAndClearMeterPeak (1);
+
+    basePlate.getMeters().push (peakL, peakR);
+    driveShake (juce::jmax (peakL, peakR));
+
+    auto& spectrum = basePlate.getSpectrum();
+    spectrum.setSampleRate (processorRef.getSampleRate());
+    spectrum.pull();
+}
+
+void PitchCorrectorAudioProcessorEditor::driveShake (float peak)
+{
+    // Hit hard, fall away: the window should snap on a transient and drift
+    // back, not wobble along behind the average level.
+    shakeLevel = juce::jmax (juce::jlimit (0.0f, 1.0f, peak),
+                             shakeLevel * kShakeRelease);
+
+    // Curved so quiet passages barely register and loud ones throw it about —
+    // a linear map spends most of its range on a permanent low-level jitter.
+    const float amp = kShakeMax * std::pow (shakeLevel, kShakeCurve);
+
+    const auto previous = shakeOffset;
+
+    if (amp < kShakeFloor)
+    {
+        shakeOffset = {};
+    }
+    else
+    {
+        // A fresh direction every frame. Anything smoothed reads as a wobble;
+        // the whole point is that it looks struck.
+        const float angle = shakeRng.nextFloat() * juce::MathConstants<float>::twoPi;
+
+        shakeOffset = { juce::roundToInt (std::cos (angle) * amp),
+                        juce::roundToInt (std::sin (angle) * amp) };
+    }
+
+    shell.setShakeOffset (shakeOffset);
+
+    // The plate has just been thrown from `previous` to `shakeOffset`, so the
+    // smear trails back the other way — same sign convention the wheel's own
+    // motion trails use.
+    wheel.setShakeMotion ((previous - shakeOffset).toFloat());
 }
 
 void PitchCorrectorAudioProcessorEditor::placeShellNearStub()
@@ -170,5 +249,6 @@ void PitchCorrectorAudioProcessorEditor::placeShellNearStub()
                             .getDisplayForRect (stub, true))
         target = target.constrainedWithin (display->userArea);
 
-    shell.setTopLeftPosition (target.getPosition());
+    // Home, not just position: the next shake frame is measured from this.
+    shell.setHomePosition (target.getPosition());
 }

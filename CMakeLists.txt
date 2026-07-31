@@ -96,6 +96,23 @@ juce_add_plugin(SolVoiceTuner
 juce_generate_juce_header(SolVoiceTuner)
 
 # ----------------------------------------------------------------------------
+# Embedded assets
+# ----------------------------------------------------------------------------
+# Lens-dirt texture: Gard's own original work (2026-07-28). Not licensed from
+# anyone, so there is nothing to attribute, nothing to renew and no terms that
+# can change — which is exactly why it was made rather than sourced.
+#
+# The 63C mark ships as Gard drew it — white on transparent, for dark surfaces.
+# Sol's plate is white, so BrandMark recolours it to ink at load rather than a
+# second, inverted copy of the file being kept in step by hand.
+juce_add_binary_data(SolVoiceTunerAssets
+    SOURCES
+        Resources/textures/lens_dirt.jpg
+        Resources/brand/logo_63c.png)
+
+target_link_libraries(SolVoiceTuner PRIVATE SolVoiceTunerAssets)
+
+# ----------------------------------------------------------------------------
 # Source files
 # ----------------------------------------------------------------------------
 target_sources(SolVoiceTuner PRIVATE
@@ -107,11 +124,17 @@ target_sources(SolVoiceTuner PRIVATE
     Source/ChamferPanel.h
     Source/FloatingShell.h
     Source/LissajousDisplay.h
+    Source/SolDither.h
     Source/SolPage.h
     Source/HomePage.h
     Source/WheelComponent.h
     Source/EffectDetailPage.h
     Source/MeterSidebar.h
+    Source/EdgeMeters.h
+    Source/VolumeArc.h
+    Source/BrandMark.h
+    Source/MonoToggle.h
+    Source/SpectrumStrip.h
     Source/PitchBendFader.h
     Source/EffectsWindowPage.h
     Source/HarmoniesWindowPage.h
@@ -150,6 +173,7 @@ target_link_libraries(SolVoiceTuner PRIVATE
     juce::juce_audio_processors
     juce::juce_audio_plugin_client
     juce::juce_audio_formats
+    juce::juce_dsp                  # FFT for the spectrum strip
     juce::juce_gui_extra
     juce::juce_gui_basics
     juce::juce_graphics

@@ -32,6 +32,7 @@
 
 #include <JuceHeader.h>
 
+#include "SolDither.h"
 #include "SolLookAndFeel.h"
 
 class ChamferPanel : public juce::Component
@@ -43,7 +44,33 @@ public:
     static constexpr float       kDefaultChamfer     = 44.0f;
     static constexpr float       kDefaultStrokeWidth = 6.0f;
     static constexpr float       kDefaultPadding     = 28.0f;
-    static constexpr juce::uint32 kDefaultOutline    = 0xffcfccc6; // #CFCCC6
+    static constexpr juce::uint32 kDefaultOutline    = 0xff171715; // near-black
+
+    //--------------------------------------------------------------------------
+    // Degradation
+    //--------------------------------------------------------------------------
+    static constexpr juce::uint32 kVignetteColour  = 0xff0b0d0c;
+
+    /** Colour the photographic dirt marks are tinted, and how hard its
+        brightness maps to alpha. */
+    static constexpr juce::uint32 kLensDirtTint     = 0xff1a1a18;
+    static constexpr float        kLensDirtStrength = 0.85f;
+
+    /** Gard's own dirt photograph vs the procedural marks. Kept switchable
+        so the two can be compared directly. */
+    void setUsePhotoDirt (bool shouldUsePhoto)
+    {
+        if (usePhotoDirt == shouldUsePhoto)
+            return;
+
+        usePhotoDirt = shouldUsePhoto;
+        lensDirt = {};      // force a rebuild
+        repaint();
+    }
+
+    void setGrainAlpha (float a)    { grainAlpha    = juce::jlimit (0.0f, 1.0f, a); repaint(); }
+    void setVignetteAlpha (float a) { vignetteAlpha = juce::jlimit (0.0f, 1.0f, a); repaint(); }
+    void setLensDirtAlpha (float a) { lensDirtAlpha = juce::jlimit (0.0f, 1.0f, a); repaint(); }
 
     /** Content stays this fraction of the chamfer clear of the sliced corner. */
     static constexpr float kChamferPaddingRatio = 0.35f;
@@ -180,10 +207,27 @@ public:
         const int pad      = juce::roundToInt (padding);
         const int rightPad = juce::roundToInt (padding + chamfer * kChamferPaddingRatio);
 
-        return getLocalBounds().withTrimmedLeft   (pad)
-                               .withTrimmedTop    (pad)
-                               .withTrimmedBottom (pad)
-                               .withTrimmedRight  (rightPad);
+        auto r = getLocalBounds();
+
+        // Content normally sits inside the padding on every side. Bleeding
+        // left lets a shape anchored to the wheel's centre — which sits on
+        // that edge — run right off the panel instead of stopping short of it.
+        if (! bleedLeft)
+            r = r.withTrimmedLeft (pad);
+
+        return r.withTrimmedTop    (pad)
+                .withTrimmedBottom (pad)
+                .withTrimmedRight  (rightPad);
+    }
+
+    /** Lets content run to the panel's left edge, ignoring the left padding. */
+    void setContentBleedsLeft (bool shouldBleed)
+    {
+        if (bleedLeft == shouldBleed)
+            return;
+
+        bleedLeft = shouldBleed;
+        resized();
     }
 
     /** Hooks a child component into the plate; pass nullptr to detach. The
@@ -221,6 +265,13 @@ public:
         }
 
         paintWatermark (g, path);
+
+        // Degradation passes, in order: the vignette darkens the surface, then
+        // grain sits on top of everything so it reads as one layer of film
+        // over the whole plate rather than texture on individual shapes.
+        paintVignette (g, path);
+        paintLensDirt (g, path);
+        SolDither::fillPathGrain (g, path, grainAlpha);
 
         if (strokeWidth > 0.0f)
         {
@@ -322,6 +373,74 @@ private:
                                    .toNearestInt());
     }
 
+    /** Smudges, dust and streaks, as if seen through a handled lens. Cached at
+        the panel's size — regenerating it per frame would both cost far too
+        much and make the dirt crawl. */
+    void paintLensDirt (juce::Graphics& g, const juce::Path& path)
+    {
+        if (lensDirtAlpha <= 0.0f || getWidth() <= 0 || getHeight() <= 0)
+            return;
+
+        if (lensDirt.isNull()
+            || lensDirt.getWidth()  != getWidth()
+            || lensDirt.getHeight() != getHeight())
+        {
+            if (usePhotoDirt)
+            {
+                // Gard's own dirt plate, embedded. It is a positive — dark
+                // marks on a light field — so the conversion inverts: darkness
+                // becomes opacity, and the paper it was shot on drops out.
+                const auto photo = juce::ImageCache::getFromMemory (
+                                       BinaryData::lens_dirt_jpg,
+                                       BinaryData::lens_dirt_jpgSize);
+
+                lensDirt = SolDither::tintMaskToOverlay (photo, getWidth(), getHeight(),
+                                                         juce::Colour (kLensDirtTint),
+                                                         kLensDirtStrength,
+                                                         true);   // invert
+            }
+
+            // Falls back to the procedural marks if the texture is missing.
+            if (lensDirt.isNull())
+                lensDirt = SolDither::makeLensDirt (getWidth(), getHeight());
+        }
+
+        juce::Graphics::ScopedSaveState saved (g);
+        g.reduceClipRegion (path);
+        g.setOpacity (lensDirtAlpha);
+        g.drawImageAt (lensDirt, 0, 0);
+    }
+
+    /** Corners fall away into shadow. Same trick as the orb: hold one RGB and
+        vary only alpha, so the midtones do not get dragged toward black. */
+    void paintVignette (juce::Graphics& g, const juce::Path& path) const
+    {
+        if (vignetteAlpha <= 0.0f)
+            return;
+
+        const auto b = getLocalBounds().toFloat();
+
+        if (b.isEmpty())
+            return;
+
+        // Reach the corners, not just the edges.
+        const float reach = std::sqrt (b.getWidth()  * b.getWidth()
+                                     + b.getHeight() * b.getHeight()) * 0.5f;
+
+        juce::ColourGradient v (juce::Colour (kVignetteColour).withAlpha (0.0f),
+                                b.getCentreX(), b.getCentreY(),
+                                juce::Colour (kVignetteColour).withAlpha (vignetteAlpha),
+                                b.getCentreX() + reach, b.getCentreY(),
+                                true);
+
+        v.addColour (0.45, juce::Colour (kVignetteColour).withAlpha (vignetteAlpha * 0.10f));
+
+        juce::Graphics::ScopedSaveState saved (g);
+        g.reduceClipRegion (path);
+        g.setGradientFill (v);
+        g.fillRect (b);
+    }
+
     /** Draws the brand wordmark centred on the plate, sized from the plate's
         shorter edge so it grows and shrinks with the panel, then capped so a
         very wide window doesn't stretch the word across the whole plate.
@@ -379,6 +498,17 @@ private:
 
     juce::String watermark;
     juce::Colour watermarkColour { kDefaultWatermark };
+
+    // Very light: texture you notice only if you look for it.
+    float grainAlpha     = 0.0f;   // clinical: no degradation
+    float vignetteAlpha  = 0.0f;
+    float lensDirtAlpha  = 0.0f;   // smudges off (Gard, 2026-07-31) — the plate
+                                   // reads cleaner without them. setLensDirtAlpha()
+                                   // brings them back if we want to compare.
+    bool  bleedLeft      = false;
+    bool  usePhotoDirt   = true;
+
+    juce::Image lensDirt;
 
     CloseX closeButton;
 

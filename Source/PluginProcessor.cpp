@@ -255,6 +255,15 @@ PitchCorrectorAudioProcessor::createParameterLayout()
 
 
 
+    // Collapses the incoming stereo to one centred signal before anything else
+    // sees it — including pitch detection, which is more reliable on a summed
+    // source than on whichever channel happened to be louder.
+    params.push_back (std::make_unique<APB> (juce::ParameterID { PID_INPUT_MONO, 1 },
+
+                                             "Input Mono", false));
+
+
+
     // 63C-15 audio graph: three effect chains (input global / lead voice /
     // output global), each with per-slot effect choice + Amount macro.
     // Choice item order must match VocalFx::EffectType (append-only — see
@@ -1043,6 +1052,21 @@ void PitchCorrectorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
 
     if (chs <= 0 || N <= 0) return;
 
+    // Input Mono: sum to one centred signal at the very top of the graph, so
+    // the FX chain, the detector and the shifter all work from the same source
+    // rather than a stereo pair that may not agree about the pitch.
+    if (apvts.getRawParameterValue (PID_INPUT_MONO)->load() > 0.5f && chs > 1)
+    {
+        for (int c = 1; c < chs; ++c)
+            buffer.addFrom (0, 0, buffer, c, 0, N);
+
+        juce::FloatVectorOperations::multiply (buffer.getWritePointer (0),
+                                               1.0f / (float) chs, N);
+
+        for (int c = 1; c < chs; ++c)
+            buffer.copyFrom (c, 0, buffer, 0, 0, N);
+    }
+
     // === Input Global FX chain (63C-15) ===
     // First stage of the graph: shapes the signal the tuner detects and corrects.
     applyFxChain (fxChainInput, buffer);
@@ -1237,6 +1261,27 @@ void PitchCorrectorAudioProcessor::publishMetersAndScope (const juce::AudioBuffe
         while (cur < pk && ! slot.compare_exchange_weak (cur, pk, std::memory_order_relaxed)) {}
 
         meterRms[(size_t) ch].store (rms, std::memory_order_relaxed);
+    }
+
+    // === Spectrum history: mono sum, appended sample by sample ===
+    {
+        const float* reads[2] { buffer.getReadPointer (0),
+                                buffer.getReadPointer (juce::jmin (1, chs - 1)) };
+        const int   usable = juce::jmin (chs, 2);
+        const float inv    = 1.0f / (float) usable;
+
+        int w = spectrumWrite.load (std::memory_order_relaxed);
+
+        for (int i = 0; i < N; ++i)
+        {
+            float sum = 0.0f;
+            for (int c = 0; c < usable; ++c)
+                sum += reads[c][i];
+
+            spectrumFifo[(size_t) (w++ & kSpectrumMask)] = sum * inv;
+        }
+
+        spectrumWrite.store (w, std::memory_order_release);
     }
 
     // === Publish post-processing snapshot to the scopes (lock-free) ===

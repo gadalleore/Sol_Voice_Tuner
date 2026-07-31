@@ -42,12 +42,48 @@ public:
         // so anything the content leaves unpainted stays truly transparent.
         setOpaque (false);
 
+        // Belt and braces with windowIgnoresKeyPresses in showOnDesktop: no
+        // part of this UI is typed into, so nothing in it should ever ask for
+        // the keyboard.
+        setWantsKeyboardFocus (false);
+
         constrainer.setSizeLimits (kMinWidth, kMinHeight, kMaxWidth, kMaxHeight);
 
         resizer = std::make_unique<juce::ResizableCornerComponent> (this, &constrainer);
         addAndMakeVisible (*resizer);
 
         setSize (800, 460);
+    }
+
+    /** Fixes the UI's design size and makes the corner a ZOOM rather than a
+        reshape (Gard, 2026-07-31).
+
+        Two halves to that. The constrainer gets a fixed aspect ratio, so the
+        corner can no longer stretch the window into a different shape — width
+        and height only ever move together. And the content is then laid out at
+        this logical size forever and scaled to fit by a transform, so dragging
+        the corner magnifies the whole interface — type, line weights, the
+        chamfer, the meters — instead of leaving fixed-pixel furniture stranded
+        in a larger window.
+
+        The size limits are re-derived along the same ratio, so no limit can
+        ever demand a shape the aspect lock forbids. */
+    void setLogicalSize (int w, int h)
+    {
+        if (w <= 0 || h <= 0)
+            return;
+
+        logicalWidth  = w;
+        logicalHeight = h;
+
+        const double aspect = (double) w / (double) h;
+
+        constrainer.setFixedAspectRatio (aspect);
+        constrainer.setSizeLimits (kMinWidth,  juce::roundToInt (kMinWidth  / aspect),
+                                   kMaxWidth,  juce::roundToInt (kMaxWidth  / aspect));
+
+        setSize (w, h);
+        resized();
     }
 
     /** Puts this shell on screen as a layered top-level window. Separate from
@@ -57,8 +93,22 @@ public:
         if (isOnDesktop())
             return;
 
+        // windowIgnoresKeyPresses is what keeps the host's transport working.
+        //
+        // Our own desktop window would otherwise take keyboard focus the
+        // moment it is clicked, and the DAW would stop seeing the spacebar —
+        // you could not start and stop the track while working the UI, which
+        // is not a trade anyone would make for a plugin. On Windows this maps
+        // to WS_EX_NOACTIVATE: mouse clicks and drags still arrive, the window
+        // simply never becomes the keyboard's owner, so every keystroke stays
+        // with the host (Gard, 2026-07-31).
+        //
+        // Nothing here needs typing into. Should a text field ever land on the
+        // plate, this is the flag that will stop it working, and it will need
+        // its own focused window rather than this one giving up the flag.
         addToDesktop (juce::ComponentPeer::windowIsTemporary
-                    | juce::ComponentPeer::windowIsSemiTransparent);
+                    | juce::ComponentPeer::windowIsSemiTransparent
+                    | juce::ComponentPeer::windowIgnoresKeyPresses);
         setAlwaysOnTop (true);
         setVisible (true);
     }
@@ -92,7 +142,21 @@ public:
     void resized() override
     {
         if (content != nullptr)
-            content->setBounds (getLocalBounds());
+        {
+            if (logicalWidth > 0 && logicalHeight > 0)
+            {
+                // Laid out at the design size and scaled to fit. The aspect is
+                // locked, so width alone gives the factor.
+                content->setBounds (0, 0, logicalWidth, logicalHeight);
+                content->setTransform (juce::AffineTransform::scale (
+                                           (float) getWidth() / (float) logicalWidth));
+            }
+            else
+            {
+                content->setTransform ({});
+                content->setBounds (getLocalBounds());
+            }
+        }
 
         if (resizer != nullptr)
             resizer->setBounds (getWidth()  - kResizerSize,
@@ -107,16 +171,63 @@ public:
     //--------------------------------------------------------------------------
     void mouseDown (const juce::MouseEvent& e) override
     {
+        // Settle to home before the drag begins, so the position the dragger
+        // starts from is the real one and not a shaken-out frame.
+        setShakeOffset ({});
+
+        dragging = true;
         dragger.startDraggingComponent (this, e);
     }
 
     void mouseDrag (const juce::MouseEvent& e) override
     {
         dragger.dragComponent (this, e, nullptr);
+        home = getPosition();       // dragged: here is the new home
+    }
+
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        dragging = false;
+        home = getPosition();
+    }
+
+    //--------------------------------------------------------------------------
+    // Shake — the window is thrown around by whatever is coming through it
+    //--------------------------------------------------------------------------
+    /** Where the window sits when it is not being thrown anywhere. Everything
+        that positions the shell deliberately goes through this rather than
+        setTopLeftPosition, or the next shake frame would snap it back. */
+    void setHomePosition (juce::Point<int> p)
+    {
+        home = p;
+        setTopLeftPosition (home + shakeOffset);
+    }
+
+    juce::Point<int> getHomePosition() const noexcept { return home; }
+
+    /** Displaces the window from home. Ignored mid-drag: the pointer owns the
+        window's position while the user has hold of it. */
+    void setShakeOffset (juce::Point<int> offset)
+    {
+        if (dragging || offset == shakeOffset)
+            return;
+
+        shakeOffset = offset;
+        setTopLeftPosition (home + shakeOffset);
     }
 
 private:
     juce::Component*        content = nullptr;
+
+    juce::Point<int> home;
+    juce::Point<int> shakeOffset;
+    bool             dragging = false;
+
+    /** The size the content is laid out at, whatever the window's actual size.
+        Zero until setLogicalSize(), which means "no scaling". */
+    int logicalWidth  = 0;
+    int logicalHeight = 0;
+
     juce::ComponentDragger  dragger;
     juce::ComponentBoundsConstrainer constrainer;
     std::unique_ptr<juce::ResizableCornerComponent> resizer;

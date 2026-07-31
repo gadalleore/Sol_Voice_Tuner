@@ -83,6 +83,25 @@ public:
     }
     int getScopeValidSamples() const noexcept { return scopeValidSamples.load (std::memory_order_acquire); }
 
+    /** Gap-free mono history of the output, for the spectrum strip's FFT.
+
+        The scope snapshot above cannot serve this: it holds one host block,
+        whose length is whatever the host feels like and is usually shorter than
+        an FFT window. A transform needs a fixed-length, contiguous window or a
+        steady note's spectrum changes shape every frame. Single producer (the
+        audio thread), single consumer (the UI); a torn read costs one smeared
+        display frame and no lock. */
+    void readSpectrumHistory (float* dest, int numSamples) const noexcept
+    {
+        if (dest == nullptr || numSamples <= 0)
+            return;
+
+        const int w = spectrumWrite.load (std::memory_order_acquire);
+
+        for (int i = 0; i < numSamples; ++i)
+            dest[i] = spectrumFifo[(size_t) ((w - numSamples + i) & kSpectrumMask)];
+    }
+
     /** 63C-18 meter tap (linear gain, post output chain + master volume).
         Peak max-accumulates between UI reads so short transients aren't missed
         at UI frame rates; the read clears it. RMS holds the latest block. */
@@ -105,6 +124,7 @@ public:
     static constexpr const char* PID_PITCH_BEND  = "pitchBend";
     static constexpr const char* PID_BEND_RANGE  = "bendRange";
     static constexpr const char* PID_VOLUME      = "volumeDb";
+    static constexpr const char* PID_INPUT_MONO  = "inputMono";
 
     /** The three effect chains of the v3 audio graph (63C-15). Order is fixed:
         input global -> lead voice -> output global. */
@@ -217,6 +237,15 @@ private:
     std::array<juce::AudioBuffer<float>, 2> scopeBuffers;
     std::atomic<int> scopeReadIndex     { 0 };
     std::atomic<int> scopeValidSamples  { 0 };
+
+    // Spectrum history ring. Power of two so the wrap is a mask, and a fixed
+    // std::array so the audio thread never touches an allocator. 8192 samples
+    // is ~170 ms at 48 k — four times the largest FFT window we ask for.
+    static constexpr int kSpectrumFifoSize = 8192;
+    static constexpr int kSpectrumMask     = kSpectrumFifoSize - 1;
+
+    std::array<float, kSpectrumFifoSize> spectrumFifo {};
+    std::atomic<int>                     spectrumWrite { 0 };
 
     // 63C-18 meter tap: per-channel block peak (max-accumulated until the UI
     // reads-and-clears) and latest-block RMS.

@@ -42,10 +42,7 @@ public:
         // so anything the content leaves unpainted stays truly transparent.
         setOpaque (false);
 
-        // Belt and braces with windowIgnoresKeyPresses in showOnDesktop: no
-        // part of this UI is typed into, so nothing in it should ever ask for
-        // the keyboard.
-        setWantsKeyboardFocus (false);
+        refuseKeyboardFocus (*this);
 
         constrainer.setSizeLimits (kMinWidth, kMinHeight, kMaxWidth, kMaxHeight);
 
@@ -93,24 +90,20 @@ public:
         if (isOnDesktop())
             return;
 
-        // windowIgnoresKeyPresses is what keeps the host's transport working.
-        //
-        // Our own desktop window would otherwise take keyboard focus the
-        // moment it is clicked, and the DAW would stop seeing the spacebar —
-        // you could not start and stop the track while working the UI, which
-        // is not a trade anyone would make for a plugin. On Windows this maps
-        // to WS_EX_NOACTIVATE: mouse clicks and drags still arrive, the window
-        // simply never becomes the keyboard's owner, so every keystroke stays
-        // with the host (Gard, 2026-07-31).
-        //
-        // Nothing here needs typing into. Should a text field ever land on the
-        // plate, this is the flag that will stop it working, and it will need
-        // its own focused window rather than this one giving up the flag.
+        // windowIgnoresKeyPresses covers macOS and Linux only — the Win32 peer
+        // never reads it (checked against JUCE's own source, 2026-07-31; only
+        // the NSView, UIView and X11 peers test that flag). On Windows the job
+        // is done by refuseKeyboardFocus below, which is why it is called again
+        // after the content tree exists.
         addToDesktop (juce::ComponentPeer::windowIsTemporary
                     | juce::ComponentPeer::windowIsSemiTransparent
                     | juce::ComponentPeer::windowIgnoresKeyPresses);
         setAlwaysOnTop (true);
         setVisible (true);
+
+        // Anything parented since the constructor ran — the plate and
+        // everything on it — has to be told as well.
+        refuseKeyboardFocus (*this);
     }
 
     void hideFromDesktop()
@@ -134,6 +127,7 @@ public:
         {
             addAndMakeVisible (content);
             content->toBack();          // keep the resizer grabbable on top
+            refuseKeyboardFocus (*content);
         }
 
         resized();
@@ -217,6 +211,42 @@ public:
     }
 
 private:
+    /** Makes a whole subtree refuse the keyboard, which is what keeps the
+        host's transport alive.
+
+        Our own desktop window would otherwise become the keyboard's owner the
+        moment it is clicked, and the DAW would stop seeing the spacebar — you
+        could not start and stop the track while working the UI, which is not a
+        trade anyone would make for a plugin.
+
+        Two separate things have to be switched off, and only the second one
+        matters on Windows:
+
+          - setWantsKeyboardFocus stops a control asking for focus itself
+            (Slider and Button both ask by default);
+          - setMouseClickGrabsKeyboardFocus is the one that counts. JUCE's Win32
+            peer answers WM_MOUSEACTIVATE with MA_NOACTIVATE when the window's
+            top-level component has it cleared, so Windows never activates us on
+            a click. Mouse events still arrive; focus simply never moves.
+
+        Applied to the whole tree rather than to the handful of controls that
+        happen to be clickable today, because a single component added later
+        without it would quietly bring the bug back — which is exactly how this
+        was missed the first time.
+
+        The cost: no text field can ever work on this plate. Nothing here is
+        typed into, and if that changes it needs its own focusable window rather
+        than this one giving up the flag. */
+    static void refuseKeyboardFocus (juce::Component& c)
+    {
+        c.setWantsKeyboardFocus (false);
+        c.setMouseClickGrabsKeyboardFocus (false);
+
+        for (auto* child : c.getChildren())
+            if (child != nullptr)
+                refuseKeyboardFocus (*child);
+    }
+
     juce::Component*        content = nullptr;
 
     juce::Point<int> home;

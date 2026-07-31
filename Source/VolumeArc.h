@@ -62,8 +62,11 @@ public:
         setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
 
         // Sliders ask for the keyboard by default. Ours must not: the host
-        // needs it for the transport (see FloatingShell::showOnDesktop).
+        // needs it for the transport. FloatingShell::refuseKeyboardFocus does
+        // this for the whole tree anyway — kept here so a VolumeArc used
+        // outside that shell still behaves.
         setWantsKeyboardFocus (false);
+        setMouseClickGrabsKeyboardFocus (false);
     }
 
     /** Weight of the arc and its pointer. Set from the plate so the dial is

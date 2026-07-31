@@ -35,8 +35,11 @@ public:
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
 
         // Buttons ask for the keyboard by default. Ours must not: the host
-        // needs it for the transport (see FloatingShell::showOnDesktop).
+        // needs it for the transport. FloatingShell::refuseKeyboardFocus does
+        // this for the whole tree anyway — kept here so a MonoToggle used
+        // outside that shell still behaves.
         setWantsKeyboardFocus (false);
+        setMouseClickGrabsKeyboardFocus (false);
     }
 
     /** Width the words need at their full size, plus the box around them.

@@ -42,7 +42,20 @@ public:
         // One of each per chain: an effect owns ONE set of controls here, the
         // way it does in Space Dust, so a second copy in the same chain would
         // silently share the first one's knobs. See EffectParams.h.
-        wheel.allowDuplicates = false;
+        // Duplicates ARE allowed (Giuseppe, 2026-08-23) — the same effect can
+        // sit at two points in the chain.
+        //
+        // They share one control set, because a chain owns one panel per effect
+        // (EffectParams.h): per-slot sets would multiply ~110 controls by 25
+        // slots and hand the host a parameter list nobody could use. That is
+        // why this was forbidden — the sharing was SILENT, and a second Reverb
+        // that mysteriously moved with the first reads as a bug.
+        //
+        // So it is no longer silent: a doubled effect is marked on the rim and
+        // names its twin on the detail page. Two instances of one reverb, early
+        // and late in the chain, is a real thing to want; two instances with
+        // secretly-linked knobs is not.
+        wheel.allowDuplicates = true;
         wheel.itemsDraggable  = true;
 
         // Bigger than the default: these are the things you actually aim at,
@@ -119,6 +132,17 @@ private:
             return;
 
         const auto fxType = (VocalFx::EffectType) type;
+
+        // Name the twin, if there is one. The controls below are shared with
+        // it, and the user has to be told that on the page where they are
+        // about to turn them.
+        juce::StringArray twins;
+
+        for (int s = 0; s < VocalFx::EffectChain::kNumSlots; ++s)
+            if (s != slot && typeIndex (s) == type)
+                twins.add (juce::String (s + 1));
+
+        detailPage.setLinkedSlots (twins);
 
         detailPage.rebind (PitchCorrectorAudioProcessor::fxAmountParamId (chainIndex, slot),
                            VocalFx::effectTypeName (fxType),

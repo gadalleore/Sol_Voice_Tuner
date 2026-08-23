@@ -98,6 +98,10 @@ public:
                               .expanded (5.0f, 3.0f));
     }
 
+    /** Other chain positions holding the same effect, whose controls these
+        therefore are as well. Set before rebind(). */
+    void setLinkedSlots (juce::StringArray slots) { linkedSlots = std::move (slots); }
+
     /** Point the page at one slot before pushing it: the slot's Amount, and the
         full control set of whatever effect that slot holds. */
     void rebind (const juce::String& amountParamId,
@@ -108,8 +112,18 @@ public:
                  const std::function<juce::String (VocalFx::EffectType, const char*)>& paramIdFor)
     {
         setTitle (effectName);
-        slotLabel.setText ("Chain position " + juce::String (slotIndex + 1),
-                           juce::dontSendNotification);
+
+        // Say when these controls are shared. An effect placed twice in one
+        // chain has ONE control set (EffectParams.h), so turning a knob here
+        // moves its twin too — which is only a feature if you are told.
+        juce::String where = "Chain position " + juce::String (slotIndex + 1);
+
+        if (! linkedSlots.isEmpty())
+            where += "   ·   controls shared with "
+                   + juce::String (linkedSlots.size() == 1 ? "position " : "positions ")
+                   + linkedSlots.joinIntoString (", ");
+
+        slotLabel.setText (where, juce::dontSendNotification);
 
         amountAtt.reset();
         amountAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
@@ -432,6 +446,9 @@ private:
 
     /** Where the filter module sits, so paint() can put its plate behind it. */
     juce::Rectangle<int> filterBlock;
+
+    /** Chain positions sharing this effect's controls. */
+    juce::StringArray linkedSlots;
 
     std::vector<Control> controls;
 

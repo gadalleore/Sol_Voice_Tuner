@@ -60,8 +60,17 @@ public:
         pages.push_back (&page);
         addAndMakeVisible (page);
         page.toFront (false);
-        page.setBounds (getLocalBounds().translated (getWidth(), 0));
-        animator.animateComponent (&page, getLocalBounds(), 1.0f, transitionMs, false, 1.0, 1.0);
+
+        // A new page FALLS into the frame from above and settles, rather than
+        // sliding in from the side (Giuseppe, 2026-08-23). The panels are
+        // hardware; a plate dropping into its mounting is the motion that
+        // matches them, and arriving downward gives the arrival a direction
+        // that a sideways slide does not.
+        //
+        // endSpeed 0 is what makes it SETTLE: the animator decelerates into
+        // the final bounds instead of stopping dead on the last frame.
+        page.setBounds (getLocalBounds().translated (0, -getHeight()));
+        animator.animateComponent (&page, getLocalBounds(), 1.0f, transitionMs, false, 2.6, 0.0);
         startTimer (transitionMs + 40);   // backstop; ChangeListener finalises sooner
         notifyTopChanged();
     }
@@ -118,8 +127,10 @@ public:
         below->setBounds (getLocalBounds());
         below->toBehind (top);
 
-        animator.animateComponent (top, getLocalBounds().translated (getWidth(), 0),
-                                   1.0f, transitionMs, false, 1.0, 1.0);
+        // Back out the way it came: lifted back up and away, accelerating out
+        // (startSpeed 0) as the mirror of the drop that brought it in.
+        animator.animateComponent (top, getLocalBounds().translated (0, -getHeight()),
+                                   1.0f, transitionMs, false, 0.0, 2.6);
         startTimer (transitionMs + 40);
         notifyTopChanged();
     }

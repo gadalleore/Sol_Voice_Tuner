@@ -279,6 +279,17 @@ public:
         // sliding along an invisible track (Giuseppe, 2026-08-23).
         if (scrollableRim() || itemsDraggable)
         {
+            juce::Graphics::ScopedSaveState rimState (g);
+
+            // The ring passes BEHIND the palette, not through it. The band
+            // sweeps out from the axis and back, so its upper and lower thirds
+            // cross exactly where the palette list sits — leaving it underneath
+            // put a grey plate behind twelve words and cost both of them their
+            // legibility. Cutting the palette out of the band also reads better
+            // mechanically: the list is a plate mounted over the ring.
+            if (! palette.empty())
+                g.excludeClipRegion (paletteClip.toNearestInt().expanded (4, 2));
+
             const float bandW = juce::jlimit (14.0f, 30.0f, radius * 0.13f);
 
             juce::Path band;
@@ -355,20 +366,62 @@ public:
                                                    : SolLookAndFeel::kTitleHi)
                                  .withAlpha (dimmed ? 0.35f : 1.0f));
                 g.fillPath (textPath);
+
+                // A doubled effect gets a tie-bar under its name. The two
+                // instances share one control set (see EffectsWindowPage), and
+                // that has to be visible on the rim — otherwise the second one
+                // silently tracks the first and reads as a fault.
+                if (countOfType (type) > 1)
+                {
+                    const auto tb = textPath.getBounds();
+
+                    if (tb.getWidth() > 1.0f)
+                    {
+                        g.setColour (juce::Colour (SolLookAndFeel::kAccentArc)
+                                         .withAlpha (dimmed ? 0.3f : 0.85f));
+                        g.fillRect (tb.getX(), tb.getBottom() + 2.0f,
+                                    tb.getWidth(), 1.5f);
+                    }
+                }
             }
             else
             {
-                juce::Path ring;
-                ring.addEllipse (pos.x - slotRingR, pos.y - slotRingR,
-                                 slotRingR * 2.0f, slotRingR * 2.0f);
-                juce::Path dashed;
-                const float dashes[] = { 4.0f, 4.0f };
-                juce::PathStrokeType (isTarget ? 2.2f : 1.4f)
-                    .createDashedStroke (dashed, ring, dashes, 2);
-                g.setColour (juce::Colour (isTarget ? SolLookAndFeel::kOutlineHi
-                                                    : SolLookAndFeel::kOutline)
+                // An empty slot is a MOUNTING SOCKET, not a dotted outline: a
+                // recess sunk into the ring with a bayonet's lugs around it, so
+                // it reads as somewhere a part goes rather than as a hole in
+                // the drawing (Giuseppe, 2026-08-23).
+                const float r = slotRingR;
+
+                // The recess: darker than the band, so it reads as depth.
+                g.setColour (juce::Colour (SolLookAndFeel::kBackground)
+                                 .withAlpha (isTarget ? 0.85f : 0.65f));
+                g.fillEllipse (pos.x - r, pos.y - r, r * 2.0f, r * 2.0f);
+
+                // Its rim, and a lit inner lip just inside it.
+                g.setColour (juce::Colour (isTarget ? SolLookAndFeel::kAccentArc
+                                                    : SolLookAndFeel::kOutlineHi)
+                                 .withAlpha (isTarget ? 1.0f : 0.7f));
+                g.drawEllipse (pos.x - r, pos.y - r, r * 2.0f, r * 2.0f,
+                               isTarget ? 2.2f : 1.4f);
+
+                g.setColour (juce::Colour (SolLookAndFeel::kOutline).withAlpha (0.5f));
+                g.drawEllipse (pos.x - r + 3.0f, pos.y - r + 3.0f,
+                               (r - 3.0f) * 2.0f, (r - 3.0f) * 2.0f, 1.0f);
+
+                // Four lugs on the diagonals — off the axes so they cannot be
+                // mistaken for the rim's own joint marks.
+                g.setColour (juce::Colour (isTarget ? SolLookAndFeel::kAccentArc
+                                                    : SolLookAndFeel::kOutlineHi)
                                  .withAlpha (isTarget ? 0.95f : 0.6f));
-                g.fillPath (dashed);
+
+                for (int lug = 0; lug < 4; ++lug)
+                {
+                    const float a = juce::MathConstants<float>::pi * (0.25f + 0.5f * (float) lug);
+                    const float ux = std::cos (a), uy = std::sin (a);
+                    g.drawLine (pos.x + ux * (r - 1.0f), pos.y + uy * (r - 1.0f),
+                                pos.x + ux * (r + 3.5f), pos.y + uy * (r + 3.5f),
+                                isTarget ? 2.0f : 1.3f);
+                }
             }
         }
 
@@ -708,6 +761,19 @@ private:
     {
         if (setSlotType != nullptr)
             setSlotType (slot, typeId);
+    }
+
+    /** How many slots currently hold this type. >1 means the instances share
+        one control set and the rim says so. */
+    int countOfType (int typeId) const
+    {
+        int n = 0;
+
+        for (int i = 0; i < numSlots; ++i)
+            if (slotType (i) == typeId)
+                ++n;
+
+        return n;
     }
 
     bool typeIsPlaced (int typeId) const

@@ -162,6 +162,11 @@ public:
     {
         computeGeometry();
         layoutHubContent();
+
+        // The ring has to be turning before anyone touches it. The timer used
+        // to be started only by a mouse event, so an untouched wheel sat dead
+        // still — which looked exactly like the rotation not working.
+        startTimerHz (animFps);
     }
 
     void setPalette (std::vector<Item> items)
@@ -406,39 +411,42 @@ public:
 
             if (occupied)
             {
-                // No pill shape: the label alone is the item. Hover and drag
-                // states now read through colour rather than a border.
-                auto pill = labelBox (i);
-
+                // The WHOLE PART sits on the ring — the same little plate it
+                // was in the tray and in your hand, not its name stripped out
+                // of it (Giuseppe, 2026-08-23). A part that arrives as bare
+                // text has visibly stopped being the object you were carrying.
+                const auto pill = labelBox (i);
                 const bool dimmed = dragSource == DragSource::slot && dragFromSlot == i;
+                const float a = (dimmed ? 0.35f : 1.0f) * edgeFade;
 
-                // Laid out as a path once, then reused: the trail just draws
-                // the same shape translated back to where the label was on
-                // earlier frames.
-                const auto textPath = labelPath (i);
-
-                // Rainbow dither wherever this label has just been.
-                paintTrail (g, textPath, pos, trailFor (i));
-
-                g.setColour (juce::Colour (hovered ? kHoverText
-                                                   : SolLookAndFeel::kTitleHi)
-                                 .withAlpha ((dimmed ? 0.35f : 1.0f) * edgeFade));
-                g.fillPath (textPath);
-
-                // A doubled effect gets a tie-bar under its name. The two
-                // instances share one control set (see EffectsWindowPage), and
-                // that has to be visible on the rim — otherwise the second one
-                // silently tracks the first and reads as a fault.
-                if (countOfType (type) > 1)
                 {
-                    const auto tb = textPath.getBounds();
+                    juce::Graphics::ScopedSaveState partState (g);
+                    g.setOpacity (a);
 
-                    if (tb.getWidth() > 1.0f)
+                    SolPanel::draw (g, pill.reduced (1.0f, 1.5f), false, 5.0f);
+
+                    if (hovered)
                     {
-                        g.setColour (juce::Colour (SolLookAndFeel::kAccentArc)
-                                         .withAlpha (dimmed ? 0.3f : 0.85f));
-                        g.fillRect (tb.getX(), tb.getBottom() + 2.0f,
-                                    tb.getWidth(), 1.5f);
+                        g.setColour (juce::Colour (SolLookAndFeel::kAccentArc).withAlpha (0.6f));
+                        g.drawRoundedRectangle (pill.reduced (1.0f, 1.5f), 3.0f, 1.2f);
+                    }
+
+                    g.setColour (juce::Colour (hovered ? kHoverText : SolLookAndFeel::kTitleHi));
+                    g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface,
+                                                              paletteFontHeight(),
+                                                              juce::Font::plain)));
+                    g.drawText (nameForType (type), pill.reduced (6.0f, 0.0f),
+                                juce::Justification::centredLeft);
+
+                    // A doubled effect gets a tie-bar along the foot of its
+                    // plate. The two instances share one control set (see
+                    // EffectsWindowPage), and that has to be visible on the
+                    // ring — otherwise the second silently tracks the first.
+                    if (countOfType (type) > 1)
+                    {
+                        g.setColour (juce::Colour (SolLookAndFeel::kAccentArc));
+                        g.fillRect (pill.getX() + 5.0f, pill.getBottom() - 3.5f,
+                                    pill.getWidth() - 10.0f, 1.5f);
                     }
                 }
             }
@@ -786,39 +794,18 @@ private:
             busy = true;
         }
 
-        // Hover glide toward the target rotation.
-        const float diff = targetPhase - wheelPhase;
-        if (std::abs (diff) < 0.0005f)
-        {
-            wheelPhase = targetPhase;
-        }
-        else
-        {
-            wheelPhase += diff * 0.16f;
-            busy = true;
-        }
-
-        // Continuous edge-zone rim scrolling (also active mid-drag).
-        if (edgeScrollDir != 0.0f && scrollableRim())
-        {
-            const float before = rimScroll;
-            rimScroll = juce::jlimit (0.0f, maxRimScroll(),
-                                      rimScroll + edgeScrollDir * kEdgeScrollRate / (float) animFps);
-            if (rimScroll != before)
-                busy = true;
-
-            if (dragging())
-                busy = true;    // keep ticking while a drag holds the zone
-            else
-                hoveredSlot = -1;
-        }
+        // The hover-glide toward `targetPhase` that used to live here is gone.
+        // Nothing sets targetPhase any more, so it sat at zero and hauled
+        // wheelPhase back to zero every frame — which silently cancelled the
+        // idle rotation above (Giuseppe, 2026-08-23). Rim scrolling went with
+        // it: scrollableRim() is false on a whole ring.
 
         // Keep ticking while any smear is still draining, otherwise the last
         // frame of trail would freeze on screen when motion stops.
         if (trailsDraining())
             busy = true;
 
-        if (! busy && edgeScrollDir == 0.0f)
+        if (! busy)
             stopTimer();
 
         repaint();
@@ -1106,13 +1093,28 @@ private:
         and down-and-right at the bottom, which is off the palette and also
         reads as the name belonging to that point on the ring
         (Giuseppe, 2026-08-23). */
+    /** The size of a PART, wherever it happens to be — in the tray, in your
+        hand mid-drag, or mounted on the ring. One size for all three, taken
+        from the palette's own row metrics, so an effect never changes shape as
+        it moves (Giuseppe, 2026-08-23). */
+    juce::Point<float> partSize() const
+    {
+        if (palette.empty())
+            return { pillW, pillH };
+
+        return { juce::jmax (60.0f, paletteClip.getWidth() - 8.0f),
+                 juce::jmax (16.0f, juce::jmin (pillH, paletteRowH - 4.0f)) };
+    }
+
     juce::Rectangle<float> labelBox (int slot) const
     {
         const float a = slotAngle (slot);
         const auto  p = slotCentre (slot);
         const juce::Point<float> outward { std::sin (a), -std::cos (a) };
+        const auto sz = partSize();
 
-        return pillAround (p + outward * kLabelOutset);
+        return juce::Rectangle<float> (sz.x, sz.y)
+                   .withCentre (p + outward * kLabelOutset);
     }
 
     juce::Rectangle<float> scrollHintTop() const

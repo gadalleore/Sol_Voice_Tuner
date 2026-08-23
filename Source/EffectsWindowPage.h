@@ -45,6 +45,12 @@ public:
         wheel.allowDuplicates = false;
         wheel.itemsDraggable  = true;
 
+        // Bigger than the default: these are the things you actually aim at,
+        // and at 13pt on a rim that now carries a panelled band behind them
+        // they read as captions rather than as the chain itself.
+        wheel.setItemFontHeight (18.0f);
+        wheel.setPillSize (150.0f, 34.0f);
+
         // Palette from the slot-1 choice parameter (skip index 0 = Empty) so
         // future effect types appear without touching this page.
         std::vector<WheelComponent::Item> items;

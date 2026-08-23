@@ -25,7 +25,8 @@
 
 #include <JuceHeader.h>
 
-class FloatingShell final : public juce::Component
+class FloatingShell final : public juce::Component,
+                            private juce::Timer
 {
 public:
     static constexpr int kMinWidth  = 420;
@@ -91,9 +92,24 @@ public:
         constrainer.setSizeLimits (kMinWidth,  juce::roundToInt (kMinWidth  / aspect),
                                    kMaxWidth,  juce::roundToInt (kMaxWidth  / aspect));
 
-        setSize (juce::roundToInt ((float) w * zoom),
-                 juce::roundToInt ((float) h * zoom));
-        resized();
+        // Glide to the new size rather than snapping to it (2026-08-23).
+        //
+        // The logical size changes NOW, so the page lays out correctly from
+        // the first frame; only the window's outer size is eased, and the
+        // content's scale-to-fit transform carries it along. A window that
+        // jumps between shapes reads as a glitch; one that travels reads as
+        // the panel making room.
+        targetW = juce::roundToInt ((float) w * zoom);
+        targetH = juce::roundToInt ((float) h * zoom);
+
+        if (! isOnDesktop())
+        {
+            setSize (targetW, targetH);   // not visible yet: nothing to animate
+            resized();
+            return;
+        }
+
+        startTimerHz (kResizeFps);
     }
 
     /** Puts this shell on screen as a layered top-level window. Separate from
@@ -224,6 +240,33 @@ public:
     }
 
 private:
+    /** Eases the window's outer size toward the target one frame at a time.
+
+        Exponential rather than linear: it leaves fast and arrives slowly,
+        which is what makes a size change feel like it SETTLES instead of
+        stopping dead. Snapped and stopped inside a pixel, or the timer would
+        run forever chasing a fraction. */
+    void timerCallback() override
+    {
+        const int w = getWidth(), h = getHeight();
+
+        if (std::abs (targetW - w) <= 1 && std::abs (targetH - h) <= 1)
+        {
+            stopTimer();
+            setSize (targetW, targetH);
+            resized();
+            return;
+        }
+
+        setSize (w + juce::roundToInt ((float) (targetW - w) * kResizeEase),
+                 h + juce::roundToInt ((float) (targetH - h) * kResizeEase));
+    }
+
+    static constexpr int   kResizeFps  = 60;
+    static constexpr float kResizeEase = 0.28f;   //!< per frame
+
+    int targetW = 0, targetH = 0;
+
     /** Makes a whole subtree refuse the keyboard, which is what keeps the
         host's transport alive.
 

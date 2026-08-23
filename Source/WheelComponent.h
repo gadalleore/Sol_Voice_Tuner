@@ -269,6 +269,58 @@ public:
             // No accent arc: the rim reads from the items alone (Giuseppe, 2026-07-28).
         }
 
+        // ---- The rim itself: a segmented band the items ride on ------------
+        //
+        // The rim used to be implied — a radius the labels happened to sit at,
+        // with nothing drawn. As a band it becomes the object it always was:
+        // a ring seen edge-on, grey and panelled, with the chain running round
+        // it. The segment marks are keyed to wheelPhase and rimScroll, so the
+        // ring visibly TURNS as you hover or scroll rather than the words
+        // sliding along an invisible track (Giuseppe, 2026-08-23).
+        if (scrollableRim() || itemsDraggable)
+        {
+            const float bandW = juce::jlimit (14.0f, 30.0f, radius * 0.13f);
+
+            juce::Path band;
+            band.addCentredArc (centre.x, centre.y, radius, radius,
+                                0.0f, arcStart, arcEnd, true);
+
+            // The plate of the ring.
+            g.setColour (juce::Colour (SolLookAndFeel::kPanelLight));
+            g.strokePath (band, juce::PathStrokeType (bandW, juce::PathStrokeType::curved,
+                                                      juce::PathStrokeType::butt));
+
+            // A brighter inner rail and a darker outer one: lit from inside,
+            // which is what stops a flat band reading as a painted stripe.
+            for (const auto& rail : { std::pair<float, juce::uint32> { -0.5f, SolLookAndFeel::kOutlineHi },
+                                      std::pair<float, juce::uint32> {  0.5f, SolLookAndFeel::kBackground } })
+            {
+                juce::Path edge;
+                const float r = radius + rail.first * bandW;
+                edge.addCentredArc (centre.x, centre.y, r, r, 0.0f, arcStart, arcEnd, true);
+                g.setColour (juce::Colour (rail.second).withAlpha (0.55f));
+                g.strokePath (edge, juce::PathStrokeType (1.0f));
+            }
+
+            // Panel joints, marching with the wheel.
+            const float pitch  = kRimSegment;
+            const float offset = std::fmod (wheelPhase - rimScroll, pitch);
+
+            g.setColour (juce::Colour (SolLookAndFeel::kOutline).withAlpha (0.8f));
+
+            for (float a = arcStart + offset; a <= arcEnd; a += pitch)
+            {
+                if (a < arcStart) continue;
+
+                const float s = std::sin (a), c = std::cos (a);
+                g.drawLine (centre.x + s * (radius - bandW * 0.5f),
+                            centre.y - c * (radius - bandW * 0.5f),
+                            centre.x + s * (radius + bandW * 0.5f),
+                            centre.y - c * (radius + bandW * 0.5f),
+                            1.0f);
+            }
+        }
+
         // Slots on the rim (culled to the visible arc).
         for (int i = 0; i < numSlots; ++i)
         {
@@ -321,14 +373,47 @@ public:
         }
 
         // Rim-scroll hints when the chain extends past the visible arc.
+        //
+        // The zones themselves are drawn, not just captioned. Hover-to-scroll
+        // is the primary way through a 25-slot chain and it was completely
+        // invisible — a caption that only appears once you have ALREADY
+        // scrolled cannot teach you that scrolling exists (Giuseppe, 2026-08-23).
         if (scrollableRim())
         {
-            g.setColour (juce::Colour (SolLookAndFeel::kLabelAlt).withAlpha (0.45f));
-            g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 10.0f, juce::Font::plain)));
-            if (rimScroll > 0.001f)
-                g.drawText ("^ more", scrollHintTop(),    juce::Justification::centredLeft);
-            if (rimScroll < maxRimScroll() - 0.001f)
-                g.drawText ("v more", scrollHintBottom(), juce::Justification::centredLeft);
+            const float zone = (float) getHeight() * kEdgeZoneFrac;
+            const bool  more[] { rimScroll > 0.001f, rimScroll < maxRimScroll() - 0.001f };
+
+            for (int end = 0; end < 2; ++end)
+            {
+                if (! more[end])
+                    continue;
+
+                const auto strip = end == 0
+                    ? juce::Rectangle<float> (0.0f, 0.0f, (float) getWidth(), zone)
+                    : juce::Rectangle<float> (0.0f, (float) getHeight() - zone,
+                                              (float) getWidth(), zone);
+
+                // Brightens under the pointer, so the zone answers the hover
+                // that is already scrolling the rim.
+                const bool live = edgeScrollDir != 0.0f
+                               && ((end == 0) == (edgeScrollDir < 0.0f));
+
+                g.setGradientFill (juce::ColourGradient (
+                    juce::Colour (SolLookAndFeel::kAccentArc).withAlpha (live ? 0.16f : 0.05f),
+                    strip.getCentreX(), end == 0 ? strip.getY() : strip.getBottom(),
+                    juce::Colour (SolLookAndFeel::kAccentArc).withAlpha (0.0f),
+                    strip.getCentreX(), end == 0 ? strip.getBottom() : strip.getY(), false));
+                g.fillRect (strip);
+
+                g.setColour (juce::Colour (live ? SolLookAndFeel::kAccentArc
+                                                : SolLookAndFeel::kLabelAlt)
+                                 .withAlpha (live ? 0.95f : 0.5f));
+                g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface,
+                                                          10.0f, juce::Font::plain)));
+                g.drawText (end == 0 ? "^ more" : "v more",
+                            end == 0 ? scrollHintTop() : scrollHintBottom(),
+                            juce::Justification::centredLeft);
+            }
         }
 
         // Palette inside the visible half of the hub.
@@ -935,6 +1020,10 @@ private:
     // around the goniometer. Dropped to the hairline role so the trace inside
     // it is what draws the eye.
     static constexpr juce::uint32 kRingLight  = SolLookAndFeel::kOutline;
+
+    /** Angular pitch of the rim's panel joints, in radians. Coarse enough that
+        the segments read as PLATES rather than as a gear's teeth. */
+    static constexpr float kRimSegment        = 0.19f;
 
     /** How far the ring sits outside the orb, as a multiple of its radius. */
     static constexpr float kRingOrbGap        = 1.30f;

@@ -94,6 +94,26 @@ namespace SolPanel
         g.setColour (juce::Colour (SolLookAndFeel::kOutline));
         g.strokePath (shape, juce::PathStrokeType (1.0f));
 
+        // Seam lines just inside the edge. A plate this size in the real world
+        // is not one pressing — it has a rolled lip, and the line where that
+        // lip meets the face is what tells you the panel has THICKNESS. Two
+        // shallow insets read as that lip without becoming a frame.
+        if (r.getWidth() > 60.0f && r.getHeight() > 40.0f)
+        {
+            for (const auto& seam : { std::pair<float, float> { 3.5f, 0.30f },
+                                      std::pair<float, float> { 6.0f, 0.16f } })
+            {
+                const auto inner = r.reduced (seam.first);
+
+                if (inner.getWidth() < 8.0f || inner.getHeight() < 8.0f)
+                    break;
+
+                g.setColour (juce::Colour (SolLookAndFeel::kBackground).withAlpha (seam.second));
+                g.strokePath (plateShape (inner, juce::jmax (2.0f, cut - seam.first)),
+                              juce::PathStrokeType (1.0f));
+            }
+        }
+
         if (! bolts || r.getWidth() < 46.0f || r.getHeight() < 34.0f)
             return;
 

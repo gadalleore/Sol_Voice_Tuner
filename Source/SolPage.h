@@ -63,8 +63,8 @@ public:
         back.onClick = [this] { stack.pop(); };
         addAndMakeVisible (back);
 
-        styleEdgeCaption (inCaption,  "INPUT");
-        styleEdgeCaption (outCaption, "OUTPUT");
+        addAndMakeVisible (inCaption);
+        addAndMakeVisible (outCaption);
     }
 
     void resized() final
@@ -77,8 +77,17 @@ public:
         header.removeFromLeft (kEdgeInset);
         title.setBounds (header);
 
-        inCaption .setBounds (r.removeFromTop (16));
-        outCaption.setBounds (r.removeFromBottom (16));
+        // The captions say where the signal enters and leaves THIS PAGE'S
+        // chain, so they belong over the chain — not centred on a page whose
+        // other half is an inspector the signal never passes through
+        // (Giuseppe, 2026-08-23). Subclasses narrow the span; the default is
+        // the whole width, which is right for a page that IS its content.
+        const auto span = edgeCaptionSpan (r);
+
+        inCaption .setBounds (r.removeFromTop (kCaptionHeight)
+                                .withX (span.getStart()).withWidth (span.getLength()));
+        outCaption.setBounds (r.removeFromBottom (kCaptionHeight)
+                                .withX (span.getStart()).withWidth (span.getLength()));
 
         layoutContent (r.reduced (0, 6));
     }
@@ -100,8 +109,18 @@ protected:
 
     static constexpr float kTitleHeight = 22.0f;
 
+    static constexpr int kCaptionHeight = 22;
+
     /** Subclasses place their controls inside the given content area. */
     virtual void layoutContent (juce::Rectangle<int> area) = 0;
+
+    /** Horizontal span the INPUT / OUTPUT markers sit over, within the page's
+        content area. Override to point them at the part of the page the signal
+        actually flows through. */
+    virtual juce::Range<int> edgeCaptionSpan (juce::Rectangle<int> content) const
+    {
+        return { content.getX(), content.getRight() };
+    }
 
     /** For pages that rebind to different content (e.g. EffectDetailPage). */
     void setTitle (const juce::String& t) { title.setText (t, juce::dontSendNotification); }
@@ -163,19 +182,89 @@ private:
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BackWord)
     };
 
-    void styleEdgeCaption (juce::Label& l, const juce::String& text)
+    //==========================================================================
+    /** IN and OUT, as a marker on the machine rather than a caption under it.
+
+        These were 10.5pt grey type at half alpha, which on a panelled page is
+        the quietest thing on the surface — so the one label that tells you
+        which way the signal runs read as a footnote (Giuseppe, 2026-08-23).
+
+        Now it is a plate with a rule running out of it to either side, and a
+        chevron pointing the way the audio goes. Both chevrons point DOWN,
+        because that is the whole claim: in at the top, out at the bottom. Drawn
+        in kAccentCool, since this is about signal and cyan is what signal is. */
+    class FlowCaption final : public juce::Component
     {
-        l.setText (text, juce::dontSendNotification);
-        l.setJustificationType (juce::Justification::centred);
-        l.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 10.5f, juce::Font::plain)));
-        l.setColour (juce::Label::textColourId,
-                     juce::Colour (SolLookAndFeel::kLabelAlt).withAlpha (0.5f));
-        addAndMakeVisible (l);
-    }
+    public:
+        FlowCaption (const juce::String& t) : text (t)
+        {
+            setInterceptsMouseClicks (false, false);
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            auto r = getLocalBounds().toFloat().reduced (0.0f, 1.0f);
+
+            if (r.getWidth() < 60.0f || r.getHeight() < 10.0f)
+                return;
+
+            const auto ink = juce::Colour (SolLookAndFeel::kAccentCool);
+
+            g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface,
+                                                      11.0f, juce::Font::bold)));
+
+            const float textW = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), text);
+            const auto  plate = r.withSizeKeepingCentre (textW + kPlatePad, r.getHeight());
+
+            // The rule. It runs the full span and the plate sits ON it, so the
+            // marker reads as a tap off a signal path rather than as a label
+            // floating in space.
+            g.setColour (ink.withAlpha (0.28f));
+            g.fillRect (r.getX(), r.getCentreY() - 0.5f,
+                        plate.getX() - r.getX() - kRuleGap, 1.0f);
+            g.fillRect (plate.getRight() + kRuleGap, r.getCentreY() - 0.5f,
+                        r.getRight() - plate.getRight() - kRuleGap, 1.0f);
+
+            SolPanel::draw (g, plate, false, 5.0f);
+            g.setColour (ink.withAlpha (0.55f));
+            g.strokePath (SolPanel::plateShape (plate, 5.0f), juce::PathStrokeType (1.0f));
+
+            g.setColour (ink);
+            g.drawText (text, plate.toNearestInt(), juce::Justification::centred);
+
+            // Chevrons on the rule either side, pointing the way it flows.
+            for (const float cx : { plate.getX() - kRuleGap - kChevronOut,
+                                    plate.getRight() + kRuleGap + kChevronOut })
+                drawChevron (g, cx, r.getCentreY(), ink);
+        }
+
+    private:
+        static void drawChevron (juce::Graphics& g, float cx, float cy, juce::Colour ink)
+        {
+            juce::Path p;
+            p.startNewSubPath (cx - kChevronW, cy - kChevronW * 0.6f);
+            p.lineTo          (cx,             cy + kChevronW * 0.6f);
+            p.lineTo          (cx + kChevronW, cy - kChevronW * 0.6f);
+
+            g.setColour (ink.withAlpha (0.7f));
+            g.strokePath (p, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved,
+                                                         juce::PathStrokeType::rounded));
+        }
+
+        static constexpr float kPlatePad   = 22.0f;
+        static constexpr float kRuleGap    =  7.0f;
+        static constexpr float kChevronOut = 12.0f;
+        static constexpr float kChevronW   =  4.0f;
+
+        const juce::String text;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (FlowCaption)
+    };
 
     juce::Label title;
     BackWord    back;
-    juce::Label inCaption, outCaption;
+    FlowCaption inCaption  { "INPUT" };
+    FlowCaption outCaption { "OUTPUT" };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SolPage)
 };

@@ -20,22 +20,29 @@
 #include "EffectChain.h"
 #include "EffectDetailPage.h"
 #include "PluginProcessor.h"
+#include "SignalMeter.h"
 #include "SolPage.h"
 #include "SolPanel.h"
 #include "WheelComponent.h"
 
 class EffectsWindowPage final : public SolPage,
+                                public  SizedPage,
                                 private juce::Timer
 {
 public:
+    /** Wired by the editor so a change of selection can re-fit the window. */
+    std::function<void()> onSizeWanted;
+
     EffectsWindowPage (juce::AudioProcessorValueTreeState& apvtsIn,
+                       VocalFx::EffectChain& chainIn,
                        int chainIndexIn,
                        const juce::String& titleText,
                        PageStack& stackToUse)
         : SolPage (stackToUse, titleText),
           apvts (apvtsIn),
+          chain (chainIn),
           chainIndex (chainIndexIn),
-          detailPage (apvtsIn, stackToUse)
+          detailPage (apvtsIn)
     {
         wheel.setNumSlots (VocalFx::EffectChain::kNumSlots);
         wheel.emptyTypeId     = (int) VocalFx::EffectType::Empty;
@@ -78,7 +85,25 @@ public:
         wheel.getSlotType   = [this] (int slot)         { return typeIndex (slot); };
         wheel.setSlotType   = [this] (int slot, int t)  { setTypeIndex (slot, t); };
         wheel.onSlotClicked = [this] (int slot)         { openDetail (slot); };
+        // The ring keeps one size whatever the window does (Giuseppe,
+        // 2026-08-23) — see WheelComponent::setFixedRadius.
+        wheel.setFixedRadius (kRingRadius);
+
         addAndMakeVisible (wheel);
+        addChildComponent (detailPage);   // hidden until something is selected
+
+        // Metering either side of the selected effect: what is arriving, and
+        // what is leaving. Hidden with the inspector, because with nothing
+        // selected there is no "either side" to be on.
+        addChildComponent (inMeter);
+        addChildComponent (outMeter);
+
+        // The inspector changing shape changes the window's shape.
+        detailPage.onSizeChanged = [this]
+        {
+            resized();
+            if (onSizeWanted != nullptr) onSizeWanted();
+        };
 
         startTimerHz (15); // reflect host automation / preset changes
     }
@@ -89,8 +114,65 @@ private:
         // Clear of the plate's right-hand column, like every other page.
         area = area.withTrimmedRight (kRightColumn);
 
+        // The inspector takes the right of the page when something is
+        // selected, and the ring keeps the rest. With nothing selected the
+        // ring has the lot and the window shrinks to suit.
+        const bool showing = detailPage.hasEffect();
+
+        inMeter .setVisible (showing);
+        outMeter.setVisible (showing);
+
+        if (showing)
+        {
+            auto block = area.removeFromRight (inspectorBlockWidth (area));
+            area.removeFromRight (kGap);
+
+            // Input on the LEFT of the effect, output on the RIGHT — the two
+            // meters bracket the module the way the signal does.
+            inMeter .setBounds (block.removeFromLeft  (SignalMeter::kWidth));
+            outMeter.setBounds (block.removeFromRight (SignalMeter::kWidth));
+
+            detailPage.setBounds (block.reduced (kMeterGap, 0));
+        }
+
         wheelPlate = area.expanded (kPlateBleed, 2);
         wheel.setBounds (area);
+    }
+
+    /** INPUT / OUTPUT belong over the RING — that is the thing the signal runs
+        through. Centred on the page they straddled the inspector too, which
+        implied the selected effect was somehow the whole chain. */
+    juce::Range<int> edgeCaptionSpan (juce::Rectangle<int> content) const override
+    {
+        auto area = content.withTrimmedRight (kRightColumn);
+
+        if (detailPage.hasEffect())
+            area = area.withTrimmedRight (inspectorBlockWidth (area) + kGap);
+
+        return { area.getX(), area.getRight() };
+    }
+
+    /** Inspector plus the two meters flanking it. */
+    int inspectorBlockWidth (juce::Rectangle<int> area) const
+    {
+        const int flank = (SignalMeter::kWidth + kMeterGap) * 2;
+
+        return juce::jlimit (kInspectorMinW + flank,
+                             juce::jmax (kInspectorMinW + flank, area.getWidth() - kRingMinW),
+                             detailPage.preferredLogicalSize().x + flank);
+    }
+
+    /** Ring plus whatever the selected effect needs beside it. */
+    juce::Point<int> preferredLogicalSize() const override
+    {
+        if (! detailPage.hasEffect())
+            return { kBareW, kBareH };
+
+        const auto want = detailPage.preferredLogicalSize();
+        const int  flank = (SignalMeter::kWidth + kMeterGap) * 2;
+
+        return { juce::jlimit (kBareW, kMaxW, kBareW + want.x + flank + kGap),
+                 juce::jlimit (kBareH, kMaxH, juce::jmax (kBareH, want.y)) };
     }
 
     void paint (juce::Graphics& g) override
@@ -104,7 +186,16 @@ private:
             SolPanel::draw (g, wheelPlate.toFloat());
     }
 
-    void timerCallback() override { wheel.repaint(); }
+    void timerCallback() override
+    {
+        wheel.repaint();
+
+        if (detailPage.hasEffect())
+        {
+            inMeter .setLevel (chain.getMeteredInLevel());
+            outMeter.setLevel (chain.getMeteredOutLevel());
+        }
+    }
 
     int typeIndex (int slot) const
     {
@@ -153,19 +244,40 @@ private:
                            {
                                return PitchCorrectorAudioProcessor::fxEffectParamId (chainIndex, t, paramId);
                            });
-        stack.push (detailPage);
+
+        // Point the audio thread's meters at this slot.
+        chain.setMeteredSlot (slot);
+
+        // No push: the inspector is already on this page, beside the ring.
+        resized();
     }
 
     juce::AudioProcessorValueTreeState& apvts;
+    VocalFx::EffectChain& chain;
     const int chainIndex;
 
-    static constexpr int kRightColumn = 110;
+    static constexpr int kRightColumn   = 110;
+    static constexpr int kGap           = 10;
+    static constexpr int kRingMinW      = 300;
+    static constexpr int kInspectorMinW = 240;
+    static constexpr int kMeterGap      = 6;
+
+    /** The ring's one size, in logical pixels — see setFixedRadius. Sized to
+        the BARE page, so it is the same ring whether or not an inspector is
+        open beside it. */
+    static constexpr float kRingRadius  = 178.0f;
+
+    /** The page with nothing selected, and the ceiling once something is. */
+    static constexpr int kBareW = 620, kBareH = 450;
+    static constexpr int kMaxW  = 1180, kMaxH = 660;
     static constexpr int kPlateBleed  = 6;
 
     juce::Rectangle<int> wheelPlate;
 
     WheelComponent   wheel;
     EffectDetailPage detailPage;
+    SignalMeter      inMeter  { "IN"  };
+    SignalMeter      outMeter { "OUT" };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EffectsWindowPage)
 };

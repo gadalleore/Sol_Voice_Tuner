@@ -28,10 +28,35 @@
 #include <memory>
 #include <vector>
 
-class EffectDetailPage final : public SolPage,
-                               public SizedPage
+/** The selected effect's controls, shown BESIDE the ring rather than on a page
+    of their own (Giuseppe, 2026-08-23).
+
+    It used to be pushed onto the page stack, which meant losing sight of the
+    chain the moment you went to adjust anything in it — and it left the whole
+    right-hand half of the effects page empty while it did. As an inspector it
+    fills that space, the chain stays visible, and the window grows or shrinks
+    to whatever the selected effect actually needs. */
+class EffectDetailPage final : public juce::Component
 {
 public:
+    /** Fired when the inspector's wanted size changes, so the page above can
+        ask the window to re-fit. */
+    std::function<void()> onSizeChanged;
+
+    /** Nothing selected: the inspector hides and the page shrinks to the ring. */
+    bool hasEffect() const noexcept { return ! controls.empty(); }
+
+    void clearEffect()
+    {
+        controls.clear();
+        amountAtt.reset();
+        effectName = {};
+        setVisible (false);
+
+        if (onSizeChanged != nullptr)
+            onSizeChanged();
+    }
+
     /** The window is sized to the effect (2026-08-22). Lo-Fi has two controls
         and Trance Gate twenty-three; giving both the same panel either wastes
         two thirds of it or crams the other into a scrollless grid that clips.
@@ -39,7 +64,7 @@ public:
         Derived from the same constants the layout uses, so the two cannot drift
         — the page asks for exactly the room it is about to lay out into, plus
         the chrome that surrounds it. */
-    juce::Point<int> preferredLogicalSize() const override
+    juce::Point<int> preferredLogicalSize() const
     {
         int mainCount = 0, filterCount = 0;
 
@@ -56,7 +81,7 @@ public:
         const int mainRows   = (juce::jmax (1, mainCount) + cols - 1) / cols;
         const int filterRows = filterCount > 0 ? (filterCount + cols - 1) / cols : 0;
 
-        const int contentW = cols * kCellWidth + kRightColumn;
+        const int contentW = cols * kCellWidth;
         const int contentH = 18 + 4 + (kAmountSize + kCaptionH) + 6
                            + mainRows * kMainCellMaxH
                            + (filterRows > 0 ? 8 + kGroupHeaderH + filterRows * kFilterCellH : 0);
@@ -65,9 +90,11 @@ public:
                  juce::jlimit (kMinLogicalH, kMaxLogicalH, contentH + kChromeH) };
     }
 
-    EffectDetailPage (juce::AudioProcessorValueTreeState& apvtsIn, PageStack& stackToUse)
-        : SolPage (stackToUse, "Effect"), apvts (apvtsIn)
+    explicit EffectDetailPage (juce::AudioProcessorValueTreeState& apvtsIn)
+        : apvts (apvtsIn)
     {
+        setVisible (false);   // nothing selected yet
+
         styleKnob (amount);
         addAndMakeVisible (amount);
 
@@ -88,7 +115,13 @@ public:
         label, so the block it names gets a surface to sit on. */
     void paint (juce::Graphics& g) override
     {
-        SolPage::paint (g);
+        // The inspector is its own plate beside the ring.
+        SolPanel::draw (g, getLocalBounds().toFloat().reduced (1.0f), false, 8.0f);
+
+        g.setColour (juce::Colour (SolLookAndFeel::kTitleHi));
+        g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 17.0f, juce::Font::plain)));
+        g.drawText (effectName, getLocalBounds().reduced (14, 8).removeFromTop (22),
+                    juce::Justification::centredLeft);
 
         if (filterBlock.isEmpty() || ! filterHeader.isVisible())
             return;
@@ -111,7 +144,8 @@ public:
                  int slotIndex,
                  const std::function<juce::String (VocalFx::EffectType, const char*)>& paramIdFor)
     {
-        setTitle (effectName);
+        this->effectName = effectName;
+        setVisible (true);
 
         // Say when these controls are shared. An effect placed twice in one
         // chain has ONE control set (EffectParams.h), so turning a knob here
@@ -131,6 +165,9 @@ public:
 
         buildControls (type, paramIdFor);
         resized();
+
+        if (onSizeChanged != nullptr)
+            onSizeChanged();
     }
 
 private:
@@ -258,13 +295,10 @@ private:
     }
 
     //==========================================================================
-    void layoutContent (juce::Rectangle<int> area) override
+    void resized() override
     {
-        // Keep clear of the plate's right-hand column. Volume, Input Mono, the
-        // meters and the mark are fixtures of the WINDOW, drawn over whatever
-        // page is showing (see TuningWindowPage) — a page that lays out across
-        // its full width stacks controls underneath them.
-        area = area.withTrimmedRight (kRightColumn);
+        auto area = getLocalBounds().reduced (14, 10);
+        area.removeFromTop (24);   // the effect name, drawn in paint()
 
         slotLabel.setBounds (area.removeFromTop (18));
         area.removeFromTop (4);
@@ -422,7 +456,7 @@ private:
 
     /** Width the plate's volume / mono / meter / mark column needs — matches
         TuningWindowPage::kRightColumn and MainPage::kRightColumn. */
-    static constexpr int kRightColumn  = 110;
+    static constexpr int kRightColumn  = 110;   // unused by the inspector
 
     static constexpr int kMaxCols      = 6;
 
@@ -446,6 +480,9 @@ private:
 
     /** Where the filter module sits, so paint() can put its plate behind it. */
     juce::Rectangle<int> filterBlock;
+
+    /** The effect currently shown, drawn as the inspector's heading. */
+    juce::String effectName;
 
     /** Chain positions sharing this effect's controls. */
     juce::StringArray linkedSlots;

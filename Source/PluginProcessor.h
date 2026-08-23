@@ -138,6 +138,15 @@ public:
         numFxChains
     };
 
+    /** The chain itself, for the UI. Everything else about a chain goes
+        through APVTS, but a LEVEL is not a parameter — it is what the audio
+        thread is measuring right now, and the effects page reads it straight
+        off the chain to meter either side of the selected effect. */
+    VocalFx::EffectChain& getFxChain (int chain) noexcept
+    {
+        return fxChains[(size_t) juce::jlimit (0, numFxChains - 1, chain)];
+    }
+
     /** Param-ID prefix per chain ("fxIn" / "fxVoice" / "fxOut"). */
     static const char* fxChainPrefix (int chain) noexcept
     {

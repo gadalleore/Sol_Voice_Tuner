@@ -46,6 +46,12 @@ public:
     static constexpr float       kDefaultPadding     = 28.0f;
     static constexpr juce::uint32 kDefaultOutline    = 0xff171715; // near-black
 
+    /** Black piping around the plate's border and the close X, so both hold an
+        edge against whatever the transparent window is sitting on. Thin on
+        purpose: enough to separate, not enough to read as a second frame. */
+    static constexpr float kKeyline      = 1.0f;
+    static constexpr float kKeylineAlpha = 0.72f;
+
     //--------------------------------------------------------------------------
     // Degradation
     //--------------------------------------------------------------------------
@@ -275,6 +281,17 @@ public:
 
         if (strokeWidth > 0.0f)
         {
+            // A black keyline under the border, a hair wider than it
+            // (Giuseppe, 2026-08-23). The shell is a transparent desktop
+            // window, so the plate's edge lands straight on whatever happens
+            // to be behind it — a pale wallpaper, a bright DAW — and a mid-grey
+            // hairline has nothing to hold it against a light ground. Black
+            // piping does, and it costs one extra stroke of the same path.
+            g.setColour (juce::Colours::black.withAlpha (kKeylineAlpha));
+            g.strokePath (path, juce::PathStrokeType (strokeWidth + kKeyline * 2.0f,
+                                                      juce::PathStrokeType::mitered,
+                                                      juce::PathStrokeType::butt));
+
             g.setColour (stroke);
             g.strokePath (path, juce::PathStrokeType (strokeWidth,
                                                       juce::PathStrokeType::mitered,
@@ -323,9 +340,20 @@ private:
             // right edges of its square instead of floating inside it.
             auto r = getLocalBounds().toFloat().reduced (thickness * 0.5f);
 
-            g.setColour (hot ? strokeColour.darker (0.35f) : strokeColour);
-            g.drawLine (r.getX(), r.getY(), r.getRight(), r.getBottom(), thickness);
-            g.drawLine (r.getRight(), r.getY(), r.getX(), r.getBottom(), thickness);
+            // Same black piping as the plate's border, and for the same reason:
+            // the X hangs in the cut-away corner with nothing behind it but the
+            // desktop, so on anything pale it needs its own edge to read
+            // against (Giuseppe, 2026-08-23).
+            for (const auto pass : { true, false })
+            {
+                g.setColour (pass ? juce::Colours::black.withAlpha (kKeylineAlpha)
+                                  : (hot ? strokeColour.darker (0.35f) : strokeColour));
+
+                const float t = pass ? thickness + kKeyline * 2.0f : thickness;
+
+                g.drawLine (r.getX(), r.getY(), r.getRight(), r.getBottom(), t);
+                g.drawLine (r.getRight(), r.getY(), r.getX(), r.getBottom(), t);
+            }
         }
 
         void mouseEnter (const juce::MouseEvent&) override { repaint(); }

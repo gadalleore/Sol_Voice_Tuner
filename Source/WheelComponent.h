@@ -81,6 +81,11 @@ public:
         circles toward the left edge so the labels stand clear of them. */
     void setRingScale (float s)           { ringScale = juce::jlimit (0.05f, 1.0f, s); repaint(); }
 
+    /** Pin the ring to one radius regardless of the component's size, so a
+        window that resizes to fit its content doesn't resize the wheel with
+        it. Zero (the default) derives the radius from the bounds as before. */
+    void setFixedRadius (float r)         { fixedRadius = juce::jmax (0.0f, r); resized(); }
+
     /** Just the item labels, flat, in one colour — the spectrum strip uses
         this to knock the type back out of its bars. A stencil, not a second
         paint: no rim, no trails, no dashed empty slots. */
@@ -200,9 +205,14 @@ public:
             if (slotVisible (i) && labelBox (i).contains (p))
                 return true;
 
-        // Hover-scroll strips, but only when there is actually a chain to
-        // scroll — otherwise they would eat drags along the top and bottom.
-        if (scrollableRim())
+        // The steering strips along the top and bottom edges.
+        //
+        // Restricted to the wheel's own side of the panel. Claiming the FULL
+        // width of those strips meant the wheel swallowed the top and bottom
+        // of the inspector beside it — including, at the very top, the region
+        // the plate paints through — and the page stopped rendering entirely
+        // (Giuseppe, 2026-08-23).
+        if (itemsDraggable && (float) x <= centre.x + radius + pillW)
         {
             const float zone = (float) getHeight() * kEdgeZoneFrac;
 
@@ -682,7 +692,17 @@ public:
         if (source == DragSource::palette)
         {
             if (target >= 0 && (allowDuplicates || ! typeIsPlaced (dragTypeId)))
+            {
                 applySlotType (target, dragTypeId);
+
+                // Placing an effect IS asking to set it up (Giuseppe,
+                // 2026-08-23). Nobody drags a Reverb onto the chain and then
+                // wants it at whatever the defaults happen to be — so open it,
+                // rather than making the drop and the click two separate
+                // gestures for one intention.
+                if (onSlotClicked != nullptr)
+                    onSlotClicked (target);
+            }
         }
         else if (source == DragSource::slot)
         {
@@ -762,7 +782,10 @@ private:
         through the elements, top edge scrolls back; 0 outside the zones. */
     float computeEdgeScrollDir (juce::Point<float> pos) const
     {
-        if (! scrollableRim())
+        // No scrollableRim() guard: the ring always turns, so the edge zones
+        // are always live. That guard is what silently disabled hover-steering
+        // when scrolling was removed (Giuseppe, 2026-08-23).
+        if (! itemsDraggable)
             return 0.0f;
 
         const float h    = juce::jmax (1.0f, (float) getHeight());
@@ -779,17 +802,26 @@ private:
     {
         bool busy = false;
 
-        // The ring turns on its own when left alone (Giuseppe, 2026-08-23) —
-        // slowly, one revolution in about kIdleSpinSeconds. Hovering or
-        // dragging holds it still, because you cannot aim at a moving target
-        // and the moment the pointer is over the wheel you are aiming.
-        if (! isMouseOverOrDragging() && ! dragging())
+        // The ring turns ONLY while you are steering it (Giuseppe, 2026-08-23).
+        //
+        // It idled at one revolution a minute for a while, and that was wrong
+        // in a way that took seeing it to notice: a chain that rearranges
+        // itself while you read it is not a chain you can read. Slot 3 is
+        // wherever slot 3 happens to have drifted to. Motion here has to MEAN
+        // something, and the only thing it can mean is "you asked for it" —
+        // hover the top and the ring rides up, hover the bottom and it comes
+        // down. Hands off, it holds still and stays readable.
+        //
+        // A drag freezes it too: that is the one moment you are aiming at a
+        // specific slot, and a moving target would fight the gesture.
+        if (edgeScrollDir != 0.0f && ! dragging())
         {
-            wheelPhase += juce::MathConstants<float>::twoPi
-                        / (kIdleSpinSeconds * (float) animFps);
+            wheelPhase += edgeScrollDir * kSteerRate / (float) animFps;
 
-            if (wheelPhase > juce::MathConstants<float>::twoPi)
-                wheelPhase -= juce::MathConstants<float>::twoPi;
+            // Wrap both ways: steering backwards takes the phase negative.
+            const float twoPi = juce::MathConstants<float>::twoPi;
+            if (wheelPhase >  twoPi) wheelPhase -= twoPi;
+            if (wheelPhase < -twoPi) wheelPhase += twoPi;
 
             busy = true;
         }
@@ -882,7 +914,15 @@ private:
         // continuously, so slots enter at the top, sweep across the visible
         // side and leave at the bottom, round and round. It used to be a bare
         // semicircle that had to be scrolled.
-        radius = juce::jmin (b.getHeight() * 0.52f, b.getWidth() * 0.62f);
+        // A FIXED radius where the caller asks for one (Giuseppe, 2026-08-23).
+        // The window changes shape to suit the effect you have open; the ring
+        // is not part of that. Growing the wheel because the inspector beside
+        // it got wider makes the whole page feel like it is breathing, and the
+        // slot you were about to click moves out from under the cursor. Still
+        // clamped to what actually fits, so a squeezed panel degrades instead
+        // of overflowing.
+        const float fit = juce::jmin (b.getHeight() * 0.52f, b.getWidth() * 0.62f);
+        radius = fixedRadius > 0.0f ? juce::jmin (fixedRadius, fit) : fit;
         centre = { b.getX(), b.getCentreY() };   // flush to the edge
 
         const float hubR = hubRadius();
@@ -950,7 +990,36 @@ private:
     float slotEdgeFadeFor (int i) const
     {
         const float s = std::sin (slotAngle (i));
-        return juce::jlimit (0.0f, 1.0f, (s - kVisibleSin) / kFadeSpan);
+        const float edge = juce::jlimit (0.0f, 1.0f, (s - kVisibleSin) / kFadeSpan);
+
+        // ...and a second fade where the ring passes BEHIND the palette.
+        //
+        // The wheel's centre is pinned to the left edge and the palette sits in
+        // the hub, so near the top and bottom of the arc a slot's plate swings
+        // across the list of effects you are trying to drag FROM. Two panels
+        // occupying the same pixels reads as a bug either way round, and of the
+        // two the palette is the one you are aiming at, so the slot yields
+        // (Giuseppe, 2026-08-23).
+        return edge * juce::jmin (1.0f, paletteClearanceFor (i));
+    }
+
+    /** 1 where a slot's plate is clear of the palette, easing to 0 as it slides
+        underneath. Measured on the horizontal overlap alone: the palette is a
+        tall column, so how far the plate has crossed its right edge is the
+        whole story. */
+    float paletteClearanceFor (int i) const
+    {
+        if (palette.empty() || paletteClip.isEmpty())
+            return 1.0f;
+
+        const auto pill = labelBox (i);
+
+        if (! pill.intersects (paletteClip.expanded (kPaletteClearPad)))
+            return 1.0f;
+
+        const float over = paletteClip.getRight() + kPaletteClearPad - pill.getX();
+
+        return juce::jlimit (0.0f, 1.0f, 1.0f - over / juce::jmax (1.0f, pill.getWidth()));
     }
 
     /** 1 well inside the arc, easing to 0 as a slot reaches either end of it.
@@ -1157,6 +1226,10 @@ private:
     {
         for (int i = 0; i < numSlots; ++i)
             if (slotVisible (i)
+                // A slot faded out behind the palette must not be clickable
+                // either, or the top of the list picks up hits from a plate
+                // nobody can see.
+                && slotEdgeFadeFor (i) > kHitFadeFloor
                 && labelBox (i).expanded (8.0f).contains (p))
                 return i;
         return -1;
@@ -1225,13 +1298,15 @@ private:
         the segments read as PLATES rather than as a gear's teeth. */
     static constexpr float kRimSegment        = 0.19f;
 
-    /** Seconds for one idle revolution, and how far the ring sits inside its
-        own bounds so the sockets and labels are not clipped. */
-    static constexpr float kIdleSpinSeconds   = 90.0f;
     /** How far round the ring stays on the panel, as sin(angle), and the
         span over which a slot fades as it turns away. */
     static constexpr float kVisibleSin        = -0.12f;
     static constexpr float kFadeSpan          = 0.22f;
+
+    /** Breathing room around the palette before a slot starts yielding to it,
+        and how solid a slot has to be before it will take a click. */
+    static constexpr float kPaletteClearPad   = 6.0f;
+    static constexpr float kHitFadeFloor      = 0.45f;
 
     /** How far the ring sits outside the orb, as a multiple of its radius. */
     static constexpr float kRingOrbGap        = 1.30f;
@@ -1246,6 +1321,11 @@ private:
     static constexpr float kTrailAlpha    = 0.75f;
     static constexpr float kEdgeScrollRate = 1.4f;
 
+    /** Radians per second while an edge zone is hovered — fast enough to
+        cross the ring deliberately, slow enough to stop where you want. */
+    static constexpr float kSteerRate      = 1.5f;
+
+    float fixedRadius = 0.0f;
     float pillW = 104.0f, pillH = 30.0f;
     float itemFontHeight = 13.0f;
     float ringScale      = 1.0f;

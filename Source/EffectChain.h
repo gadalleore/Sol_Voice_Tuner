@@ -214,13 +214,26 @@ namespace VocalFx
             const int chs = juce::jmin (buffer.getNumChannels(), scratch.getNumChannels());
             if (chs <= 0) return;
 
-            for (auto& s : slots)
+            const int watch = meteredSlot.load (std::memory_order_relaxed);
+
+            for (int si = 0; si < kNumSlots; ++si)
             {
+                auto& s = slots[(size_t) si];
+                const bool watching = (si == watch);
+
                 updateSlotInstance (s);
+
+                if (watching)
+                    publishLevel (meterIn, buffer, chs, N);
 
                 auto* fx = s.current;
                 if (fx == nullptr)
-                    continue;                       // Empty slot: bit-exact passthrough
+                {
+                    // Empty slot: bit-exact passthrough, so out == in.
+                    if (watching)
+                        publishLevel (meterOut, buffer, chs, N);
+                    continue;
+                }
 
                 if (paramValues != nullptr)
                 {
@@ -258,6 +271,12 @@ namespace VocalFx
                         s.amountRamp.next();
                         s.enableRamp.next();
                     }
+
+                    // Muted or trimmed out: signal goes in, nothing comes out,
+                    // and the two meters are how you SEE that.
+                    if (watching)
+                        publishLevel (meterOut, buffer, chs, N);
+
                     continue;
                 }
 
@@ -277,8 +296,32 @@ namespace VocalFx
                         out[i] += w * (scratch.getReadPointer (c)[i] - out[i]);
                     }
                 }
+
+                if (watching)
+                    publishLevel (meterOut, buffer, chs, N);
             }
         }
+
+        //======================================================================
+        /** Which slot's in/out levels to publish, or -1 for none.
+
+            ONE slot, not all 25. The inspector shows one effect at a time, so
+            metering every slot would buy nothing and cost fifty extra passes
+            over the block. Set from the message thread. */
+        void setMeteredSlot (int slot) noexcept
+        {
+            if (meteredSlot.exchange (slot, std::memory_order_relaxed) != slot)
+            {
+                // Don't let the previous slot's tail read as the new one's
+                // signal — a stale meter is worse than an empty one.
+                meterIn .store (0.0f, std::memory_order_relaxed);
+                meterOut.store (0.0f, std::memory_order_relaxed);
+            }
+        }
+
+        /** Peak going into and coming out of the metered slot, 0..1-ish. */
+        float getMeteredInLevel()  const noexcept { return meterIn .load (std::memory_order_relaxed); }
+        float getMeteredOutLevel() const noexcept { return meterOut.load (std::memory_order_relaxed); }
 
         static EffectType clampType (EffectType t) noexcept
         {
@@ -288,6 +331,27 @@ namespace VocalFx
 
     private:
         static constexpr float kSilentWet = 1.0e-3f;
+
+        /** Meter ballistics: instant attack, slow fall. A block peak on its own
+            flickers too fast to read; holding the peak and letting it sag is
+            what makes a level legible at a glance. Per BLOCK, not per sample. */
+        static constexpr float kMeterFall = 0.86f;
+
+        static void publishLevel (std::atomic<float>& dest,
+                                  const juce::AudioBuffer<float>& b,
+                                  int chs, int n) noexcept
+        {
+            float pk = 0.0f;
+            for (int c = 0; c < chs; ++c)
+                pk = juce::jmax (pk, b.getMagnitude (c, 0, n));
+
+            const float prev = dest.load (std::memory_order_relaxed);
+            dest.store (pk > prev ? pk : prev * kMeterFall, std::memory_order_relaxed);
+        }
+
+        std::atomic<int>   meteredSlot { -1 };
+        std::atomic<float> meterIn  { 0.0f };
+        std::atomic<float> meterOut { 0.0f };
 
         struct Slot
         {

@@ -274,9 +274,11 @@ private:
 
     HomePage            homePage;
     EffectsWindowPage   inputFxPage  { processorRef.getAPVTS(),
+                                       processorRef.getFxChain (PitchCorrectorAudioProcessor::fxChainInput),
                                        PitchCorrectorAudioProcessor::fxChainInput,
                                        "Input Global Effects", pageStack };
     EffectsWindowPage   outputFxPage { processorRef.getAPVTS(),
+                                       processorRef.getFxChain (PitchCorrectorAudioProcessor::fxChainOutput),
                                        PitchCorrectorAudioProcessor::fxChainOutput,
                                        "Output Global Effects", pageStack };
     HarmoniesWindowPage harmoniesPage { processorRef.getAPVTS(), pageStack };

@@ -88,6 +88,9 @@ PitchCorrectorAudioProcessorEditor::PitchCorrectorAudioProcessorEditor (
 
     // The root screen. Its three nav destinations are what the Home wheel's
     // three items used to be.
+    inputFxPage.onSizeWanted  = [this] { fitShellToPage(); };
+    outputFxPage.onSizeWanted = [this] { fitShellToPage(); };
+
     mainPage.onInputFx   = [this] { openPage (inputFxPage);   };
     mainPage.onHarmonies = [this] { openPage (harmoniesPage); };
     mainPage.onOutputFx  = [this] { openPage (outputFxPage);  };

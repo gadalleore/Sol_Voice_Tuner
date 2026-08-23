@@ -56,6 +56,61 @@ namespace SolPanel
         return p;
     }
 
+    /** Hazard-label ground and ink. A notice is not a panel — it is a sticker
+        stuck TO one, and on real hardware that sticker is yellow with black
+        stripes because it has to be read before anything else on the machine. */
+    inline constexpr juce::uint32 kHazard    = 0xffe3b005;
+    inline constexpr juce::uint32 kHazardInk = 0xff14140f;
+
+    inline constexpr float kStripePitch = 9.0f;
+    inline constexpr float kStripeWidth = 3.4f;
+
+    /** A warning label: yellow ground, black diagonal hatching along the top
+        and bottom edges, black rule around it. Caller draws the text in
+        kHazardInk over the middle.
+
+        The hatching runs at 45 degrees and is clipped to the plate's own
+        shape, so the stripes get cut by the chamfer exactly the way a real
+        printed label is cut by the die. */
+    inline void drawNotice (juce::Graphics& g, juce::Rectangle<float> r,
+                            bool lit = false, float cut = 7.0f)
+    {
+        if (r.getWidth() < 12.0f || r.getHeight() < 12.0f)
+            return;
+
+        cut = juce::jmin (cut, juce::jmin (r.getWidth(), r.getHeight()) * 0.22f);
+        const auto shape = plateShape (r, cut);
+
+        // Fully OPAQUE, always. A warning label is a sticker on the machine,
+        // not a tint over it — at 82% the ring and its labels read straight
+        // through the yellow and the notice stopped being a surface of its own
+        // (Giuseppe, 2026-08-23). `lit` changes the shade, never the alpha.
+        g.setColour (juce::Colour (kHazard).darker (lit ? 0.0f : 0.14f));
+        g.fillPath (shape);
+
+        {
+            juce::Graphics::ScopedSaveState s (g);
+            g.reduceClipRegion (shape, {});
+
+            const float band = juce::jlimit (4.0f, 7.0f, r.getHeight() * 0.22f);
+            g.setColour (juce::Colour (kHazardInk).withAlpha (0.9f));
+
+            // One pass per edge, hatching only inside its band.
+            for (const auto& strip : { r.withHeight (band),
+                                       r.withTrimmedTop (r.getHeight() - band) })
+            {
+                juce::Graphics::ScopedSaveState s2 (g);
+                g.reduceClipRegion (strip.toNearestInt());
+
+                for (float x = r.getX() - r.getHeight(); x < r.getRight(); x += kStripePitch)
+                    g.drawLine (x, r.getBottom(), x + r.getHeight(), r.getY(), kStripeWidth);
+            }
+        }
+
+        g.setColour (juce::Colour (kHazardInk));
+        g.strokePath (shape, juce::PathStrokeType (1.2f));
+    }
+
     /** Paints one plate. `bolts` is worth turning off for very small panels,
         where four dots in the corners is just noise. */
     inline void draw (juce::Graphics& g, juce::Rectangle<float> r,

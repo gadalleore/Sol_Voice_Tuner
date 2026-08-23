@@ -192,7 +192,7 @@ public:
         // The labels run rightward from their slot, well past the rim, so the
         // rim band alone leaves most of each word unhoverable.
         for (int i = 0; i < numSlots; ++i)
-            if (slotVisible (i) && pillAround (slotCentre (i)).contains (p))
+            if (slotVisible (i) && labelBox (i).contains (p))
                 return true;
 
         // Hover-scroll strips, but only when there is actually a chain to
@@ -333,6 +333,53 @@ public:
             }
         }
 
+        // ---- "Pull to remove", outboard of the rim -------------------------
+        //
+        // Dropping a placed effect off the rim deletes it (see mouseUp), and
+        // nothing said so: the only way to discover it was by accident. The
+        // arrow points the way OUT — rightward, away from the ring — and lights
+        // up while a slot is actually being dragged, which is the one moment
+        // the instruction is about to be needed (Giuseppe, 2026-08-23).
+        if (itemsDraggable && radius > 0.0f)
+        {
+            const bool live = dragSource == DragSource::slot;
+            const auto box = juce::Rectangle<float> (kRemoveHintW, kRemoveHintH)
+                                 .withCentre ({ centre.x + radius + kRemoveHintGap
+                                                    + kRemoveHintW * 0.5f,
+                                                centre.y });
+
+            if (box.getRight() < (float) getWidth())
+            {
+                SolPanel::drawNotice (g, box, live);
+
+                const auto ink = juce::Colour (SolPanel::kHazardInk);
+
+                auto row = box.reduced (8.0f, 7.0f);
+                const auto arrow = row.removeFromRight (18.0f);
+
+                g.setColour (ink);
+                g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface,
+                                                          9.5f, juce::Font::plain)));
+                g.drawFittedText ("PULL TO\nREMOVE", row.toNearestInt(),
+                                  juce::Justification::centredRight, 2);
+
+                // A shaft with a head: unmistakably "this way out".
+                const float cy = arrow.getCentreY();
+                const float x0 = arrow.getX(), x1 = arrow.getRight();
+
+                g.drawLine (x0, cy, x1, cy, live ? 1.8f : 1.3f);
+
+                juce::Path head;
+                head.startNewSubPath (x1 - 5.0f, cy - 4.0f);
+                head.lineTo          (x1,        cy);
+                head.lineTo          (x1 - 5.0f, cy + 4.0f);
+                g.strokePath (head, juce::PathStrokeType (live ? 1.8f : 1.3f,
+                                                          juce::PathStrokeType::curved,
+                                                          juce::PathStrokeType::rounded));
+            }
+        }
+
+
         // Slots on the rim (culled to the visible arc).
         for (int i = 0; i < numSlots; ++i)
         {
@@ -342,6 +389,16 @@ public:
             const auto pos      = slotCentre (i);
             const int  type     = slotType (i);
             const bool occupied = type != emptyTypeId;
+
+            // Slots are allowed slightly past the arc so scrolling does not
+            // pop them in and out — but at full strength that meant a socket
+            // sliced in half by the panel edge, top and bottom, which read as
+            // a drawing fault. They fade over the last part of their travel
+            // instead (Giuseppe, 2026-08-23).
+            const float edgeFade = slotEdgeFade (i);
+
+            if (edgeFade <= 0.01f)
+                continue;
             const bool isTarget = dragging() && i == hitSlot (dragPos);
             const bool hovered  = ! dragging() && i == hoveredSlot;
 
@@ -351,7 +408,7 @@ public:
             {
                 // No pill shape: the label alone is the item. Hover and drag
                 // states now read through colour rather than a border.
-                auto pill = pillAround (pos);
+                auto pill = labelBox (i);
 
                 const bool dimmed = dragSource == DragSource::slot && dragFromSlot == i;
 
@@ -365,7 +422,7 @@ public:
 
                 g.setColour (juce::Colour (hovered ? kHoverText
                                                    : SolLookAndFeel::kTitleHi)
-                                 .withAlpha (dimmed ? 0.35f : 1.0f));
+                                 .withAlpha ((dimmed ? 0.35f : 1.0f) * edgeFade));
                 g.fillPath (textPath);
 
                 // A doubled effect gets a tie-bar under its name. The two
@@ -395,17 +452,17 @@ public:
 
                 // The recess: darker than the band, so it reads as depth.
                 g.setColour (juce::Colour (SolLookAndFeel::kBackground)
-                                 .withAlpha (isTarget ? 0.85f : 0.65f));
+                                 .withAlpha ((isTarget ? 0.85f : 0.65f) * edgeFade));
                 g.fillEllipse (pos.x - r, pos.y - r, r * 2.0f, r * 2.0f);
 
                 // Its rim, and a lit inner lip just inside it.
                 g.setColour (juce::Colour (isTarget ? SolLookAndFeel::kAccentArc
                                                     : SolLookAndFeel::kOutlineHi)
-                                 .withAlpha (isTarget ? 1.0f : 0.7f));
+                                 .withAlpha ((isTarget ? 1.0f : 0.7f) * edgeFade));
                 g.drawEllipse (pos.x - r, pos.y - r, r * 2.0f, r * 2.0f,
                                isTarget ? 2.2f : 1.4f);
 
-                g.setColour (juce::Colour (SolLookAndFeel::kOutline).withAlpha (0.5f));
+                g.setColour (juce::Colour (SolLookAndFeel::kOutline).withAlpha ( 0.5f * edgeFade));
                 g.drawEllipse (pos.x - r + 3.0f, pos.y - r + 3.0f,
                                (r - 3.0f) * 2.0f, (r - 3.0f) * 2.0f, 1.0f);
 
@@ -413,7 +470,7 @@ public:
                 // mistaken for the rim's own joint marks.
                 g.setColour (juce::Colour (isTarget ? SolLookAndFeel::kAccentArc
                                                     : SolLookAndFeel::kOutlineHi)
-                                 .withAlpha (isTarget ? 0.95f : 0.6f));
+                                 .withAlpha ((isTarget ? 0.95f : 0.6f) * edgeFade));
 
                 for (int lug = 0; lug < 4; ++lug)
                 {
@@ -447,17 +504,17 @@ public:
                     : juce::Rectangle<float> (0.0f, (float) getHeight() - zone,
                                               (float) getWidth(), zone);
 
-                // Brightens under the pointer, so the zone answers the hover
-                // that is already scrolling the rim.
                 const bool live = edgeScrollDir != 0.0f
                                && ((end == 0) == (edgeScrollDir < 0.0f));
 
-                g.setGradientFill (juce::ColourGradient (
-                    juce::Colour (SolLookAndFeel::kAccentArc).withAlpha (live ? 0.16f : 0.05f),
-                    strip.getCentreX(), end == 0 ? strip.getY() : strip.getBottom(),
-                    juce::Colour (SolLookAndFeel::kAccentArc).withAlpha (0.0f),
-                    strip.getCentreX(), end == 0 ? strip.getBottom() : strip.getY(), false));
-                g.fillRect (strip);
+                // No wash. A gradient bled across the top and bottom of the
+                // panel and read as a rendering artefact rather than as an
+                // affordance, whichever alpha it was given — the band is wide,
+                // it crosses other plates, and it has no edge of its own to
+                // justify it (Giuseppe, 2026-08-23). The caption carries the
+                // hint on its own and brightens when the zone is live, which
+                // is the same information without the smear.
+                juce::ignoreUnused (strip);
 
                 g.setColour (juce::Colour (live ? SolLookAndFeel::kAccentArc
                                                 : SolLookAndFeel::kLabelAlt)
@@ -483,13 +540,13 @@ public:
             auto header = paletteClip;
             {
                 const auto plate = header.removeFromTop (kPaletteHeaderH).reduced (2.0f, 2.0f);
-                SolPanel::draw (g, plate, false, 6.0f);
+                SolPanel::drawNotice (g, plate);
 
-                g.setColour (juce::Colour (SolLookAndFeel::kLabelAlt));
+                g.setColour (juce::Colour (SolPanel::kHazardInk));
                 g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface,
                                                           9.5f, juce::Font::plain)));
                 g.drawFittedText ("PULL INTO RING\nTO ADD EFFECT",
-                                  plate.reduced (4.0f, 2.0f).toNearestInt(),
+                                  plate.reduced (5.0f, 6.0f).toNearestInt(),
                                   juce::Justification::centred, 2);
             }
 
@@ -544,60 +601,17 @@ public:
             g.restoreState();
         }
 
-        // ---- "Pull to remove", outboard of the rim -------------------------
-        //
-        // Dropping a placed effect off the rim deletes it (see mouseUp), and
-        // nothing said so: the only way to discover it was by accident. The
-        // arrow points the way OUT — rightward, away from the ring — and lights
-        // up while a slot is actually being dragged, which is the one moment
-        // the instruction is about to be needed (Giuseppe, 2026-08-23).
-        if (itemsDraggable && radius > 0.0f)
-        {
-            const bool live = dragSource == DragSource::slot;
-            const auto box = juce::Rectangle<float> (kRemoveHintW, kRemoveHintH)
-                                 .withCentre ({ centre.x + radius + kRemoveHintGap
-                                                    + kRemoveHintW * 0.5f,
-                                                centre.y });
-
-            if (box.getRight() < (float) getWidth())
-            {
-                SolPanel::draw (g, box, false, 6.0f);
-
-                const auto ink = juce::Colour (live ? SolLookAndFeel::kAccentArc
-                                                    : SolLookAndFeel::kLabelAlt)
-                                     .withAlpha (live ? 1.0f : 0.55f);
-
-                auto row = box.reduced (8.0f, 4.0f);
-                const auto arrow = row.removeFromRight (18.0f);
-
-                g.setColour (ink);
-                g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface,
-                                                          9.5f, juce::Font::plain)));
-                g.drawFittedText ("PULL TO\nREMOVE", row.toNearestInt(),
-                                  juce::Justification::centredRight, 2);
-
-                // A shaft with a head: unmistakably "this way out".
-                const float cy = arrow.getCentreY();
-                const float x0 = arrow.getX(), x1 = arrow.getRight();
-
-                g.drawLine (x0, cy, x1, cy, live ? 1.8f : 1.3f);
-
-                juce::Path head;
-                head.startNewSubPath (x1 - 5.0f, cy - 4.0f);
-                head.lineTo          (x1,        cy);
-                head.lineTo          (x1 - 5.0f, cy + 4.0f);
-                g.strokePath (head, juce::PathStrokeType (live ? 1.8f : 1.3f,
-                                                          juce::PathStrokeType::curved,
-                                                          juce::PathStrokeType::rounded));
-            }
-        }
-
         // Drag ghost on top of everything. Bare text, like the items — no pill
         // behind it (Giuseppe, 2026-07-28: no ovals around the words).
         if (dragging())
         {
             auto ghost = pillAround (dragPos);
-            g.setColour (juce::Colour (SolLookAndFeel::kTitleHi).withAlpha (0.75f));
+            // The whole PART travels, not just its name: you picked a plate
+            // out of the tray, so a plate is what follows the pointer.
+            SolPanel::draw (g, ghost.reduced (1.0f, 1.5f), false, 5.0f);
+            g.setColour (juce::Colour (SolLookAndFeel::kAccentArc).withAlpha (0.6f));
+            g.drawRoundedRectangle (ghost.reduced (1.0f, 1.5f), 3.0f, 1.2f);
+            g.setColour (juce::Colour (SolLookAndFeel::kTitleHi));
             g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 13.0f, juce::Font::plain)));
             g.drawText (nameForType (dragTypeId), ghost, juce::Justification::centred);
         }
@@ -684,18 +698,27 @@ public:
             if (target >= 0 && (allowDuplicates || ! typeIsPlaced (dragTypeId)))
                 applySlotType (target, dragTypeId);
         }
-        else if (source == DragSource::slot && target != dragFromSlot)
+        else if (source == DragSource::slot)
         {
-            if (target >= 0)
+            // Removal is RADIAL: pull the effect outward off the ring and it
+            // comes off, the way the arrow says (Giuseppe, 2026-08-23).
+            //
+            // It used to require escaping every slot's hit box, and a label is
+            // pillW wide — so you had to drag most of the way across the panel
+            // before anything happened, which read as the gesture not working.
+            // Distance from the axis is the honest test: past the rim by a
+            // little and it is off.
+            const float pulled = e.position.getDistanceFrom (centre) - radius;
+
+            if (pulled > kRemovePull)
+            {
+                applySlotType (dragFromSlot, emptyTypeId);
+            }
+            else if (target >= 0 && target != dragFromSlot)
             {
                 // Swap with the target slot (also handles dropping onto a vacancy).
                 applySlotType (dragFromSlot, slotType (target));
                 applySlotType (target, dragTypeId);
-            }
-            else
-            {
-                // Dropped off the rim: remove.
-                applySlotType (dragFromSlot, emptyTypeId);
             }
         }
 
@@ -938,6 +961,22 @@ private:
             && a <= arcEnd   + slotPitch * 0.45f;
     }
 
+    /** 1 well inside the arc, easing to 0 as a slot reaches either end of it.
+        This is what stops a socket being sliced off by the panel edge as it
+        scrolls past — it dissolves instead of being cut. */
+    float slotEdgeFade (int i) const
+    {
+        if (! scrollableRim())
+            return 1.0f;
+
+        const float a    = slotAngle (i);
+        const float span = slotPitch * 0.9f;
+        const float head = (a - arcStart) / span;      // distance in from the top
+        const float tail = (arcEnd - a)   / span;      // ...and from the bottom
+
+        return juce::jlimit (0.0f, 1.0f, juce::jmin (head, tail));
+    }
+
     juce::Point<float> slotCentre (int i) const
     {
         const float a = slotAngle (i);
@@ -957,7 +996,7 @@ private:
         (hover included, so a stencil taken from it lines up exactly). */
     juce::Path labelPath (int slot)
     {
-        const auto  pill    = pillAround (slotCentre (slot));
+        const auto  pill    = labelBox (slot);
         const bool  hovered = ! dragging() && slot == hoveredSlot;
 
         // Hovered items swell very slightly — enough to feel alive without
@@ -1063,6 +1102,25 @@ private:
         return { p.x - pillH * 0.3f, p.y - pillH * 0.5f, pillW, pillH };
     }
 
+    /** Where a slot's LABEL sits: pushed OUTWARD along the rim's own normal
+        rather than straight rightward from the slot.
+
+        Straight-right was fine in the middle of the arc and wrong at its ends,
+        where the rim curves back toward the axis — the top and bottom labels
+        ran straight into the palette column and came out from behind it
+        half-eaten. Following the normal carries them up-and-right at the top
+        and down-and-right at the bottom, which is off the palette and also
+        reads as the name belonging to that point on the ring
+        (Giuseppe, 2026-08-23). */
+    juce::Rectangle<float> labelBox (int slot) const
+    {
+        const float a = slotAngle (slot);
+        const auto  p = slotCentre (slot);
+        const juce::Point<float> outward { std::sin (a), -std::cos (a) };
+
+        return pillAround (p + outward * kLabelOutset);
+    }
+
     juce::Rectangle<float> scrollHintTop() const
     {
         const juce::Point<float> p { centre.x + radius * std::sin (arcStart),
@@ -1103,7 +1161,7 @@ private:
     {
         for (int i = 0; i < numSlots; ++i)
             if (slotVisible (i)
-                && pillAround (slotCentre (i)).expanded (8.0f).contains (p))
+                && labelBox (i).expanded (8.0f).contains (p))
                 return i;
         return -1;
     }
@@ -1122,6 +1180,12 @@ private:
     static constexpr int   animFps       = 60;
     static constexpr float maxHoverPhase = 0.22f;   // radians of hover glide
     static constexpr float slotRingR     = 13.0f;
+
+    /** How far a label is pushed out along the rim normal, clear of the hub. */
+    static constexpr float kLabelOutset  = 30.0f;
+
+    /** How far past the rim a slot has to be pulled to come off the ring. */
+    static constexpr float kRemovePull   = 30.0f;
 
     // Palette rows shrink from the comfortable size toward the tight one to fit
     // the list in; below that it scrolls. The header is the "PULL OUT" caption.

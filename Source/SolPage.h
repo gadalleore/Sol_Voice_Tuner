@@ -25,6 +25,7 @@
 
 #include "PageStack.h"
 #include "SolLookAndFeel.h"
+#include "SolPanel.h"
 
 /** Implemented by a page that wants the WINDOW sized to it.
 
@@ -122,6 +123,12 @@ private:
         void paint (juce::Graphics& g) override
         {
             const bool hot = isMouseOverOrDragging();
+
+            // Back rides its own plate now (Giuseppe, 2026-08-23). As bare
+            // type it was the one control on a panelled page still floating
+            // on the surface, which made the most-used control look like the
+            // least deliberate thing on it.
+            SolPanel::draw (g, getLocalBounds().toFloat().reduced (1.0f, 2.0f), false, 5.0f);
 
             g.setColour (juce::Colour (hot ? kHoverInk : SolLookAndFeel::kTitleHi));
 

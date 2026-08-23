@@ -64,10 +64,38 @@ public:
         startTimer (transitionMs + 40);   // backstop; ChangeListener finalises sooner
     }
 
+    /** Drop every page. The stack is reusable afterwards — setRootPage() will
+        accept a new root. Pages are owned by the caller, so this only detaches
+        them. */
+    void clear()
+    {
+        animator.cancelAllAnimations (true);
+        stopTimer();
+
+        for (auto* p : pages)
+            removeChildComponent (p);
+
+        pages.clear();
+    }
+
+    /** Fired when back is pressed on the ROOT page — the stack has no level of
+        its own to return to, so the owner decides what is above it (for Sol,
+        the Home wheel, which lives on the plate rather than in the stack).
+
+        Called from inside the back button's own mouse callback, so an owner
+        that responds by detaching the stack should defer to the message loop
+        rather than tearing the component down under the event. */
+    std::function<void()> onPopFromRoot;
+
     void pop()
     {
         if (pages.size() < 2)
+        {
+            if (! pages.empty() && onPopFromRoot != nullptr)
+                onPopFromRoot();
+
             return;
+        }
 
         auto* top = pages.back();
         pages.pop_back();

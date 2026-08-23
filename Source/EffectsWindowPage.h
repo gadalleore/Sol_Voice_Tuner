@@ -38,7 +38,10 @@ public:
     {
         wheel.setNumSlots (VocalFx::EffectChain::kNumSlots);
         wheel.emptyTypeId     = (int) VocalFx::EffectType::Empty;
-        wheel.allowDuplicates = true;
+        // One of each per chain: an effect owns ONE set of controls here, the
+        // way it does in Space Dust, so a second copy in the same chain would
+        // silently share the first one's knobs. See EffectParams.h.
+        wheel.allowDuplicates = false;
         wheel.itemsDraggable  = true;
 
         // Palette from the slot-1 choice parameter (skip index 0 = Empty) so
@@ -93,9 +96,17 @@ private:
         if (type == (int) VocalFx::EffectType::Empty)
             return;
 
+        const auto fxType = (VocalFx::EffectType) type;
+
         detailPage.rebind (PitchCorrectorAudioProcessor::fxAmountParamId (chainIndex, slot),
-                           VocalFx::effectTypeName ((VocalFx::EffectType) type),
-                           slot);
+                           VocalFx::effectTypeName (fxType),
+                           fxType,
+                           chainIndex,
+                           slot,
+                           [this] (VocalFx::EffectType t, const char* paramId)
+                           {
+                               return PitchCorrectorAudioProcessor::fxEffectParamId (chainIndex, t, paramId);
+                           });
         stack.push (detailPage);
     }
 

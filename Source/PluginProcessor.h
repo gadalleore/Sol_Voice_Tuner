@@ -24,6 +24,7 @@
 #include "PitchShifter.h"
 #include "ScaleQuantizer.h"
 #include "VocalFx.h"
+#include "EffectParams.h"
 #include "EffectChain.h"
 
 #include <array>
@@ -170,6 +171,18 @@ public:
         return fxChainPrefix (chain) + juce::String ("Amount") + juce::String (slot + 1);
     }
 
+    /** One of an effect's own controls, e.g. "fxIn_reverb_wetMix" (63C-8).
+
+        Per chain and per effect TYPE — not per slot. Each effect exists once in
+        a chain with one set of controls, exactly as it does in Space Dust; the
+        slot only decides where in the order it runs. See EffectParams.h. */
+    static juce::String fxEffectParamId (int chain, VocalFx::EffectType type, const char* paramId)
+    {
+        return juce::String (fxChainPrefix (chain))
+             + "_" + VocalFx::effectParamPrefix (type)
+             + "_" + paramId;
+    }
+
     /** 63C-13 harmony voices. Voice 0..kNumHarmony-1; each has enable +
         interval (steps: semitones when key is Chromatic, else scale degrees)
         + level + pan. The global key/scale (PID_ROOT/PID_SCALE) decides
@@ -209,6 +222,15 @@ private:
     std::array<ChainParamPtrs, numFxChains> fxTypeParams   {};
     std::array<ChainParamPtrs, numFxChains> fxAmountParams {};
 
+    // 63C-8: every effect's own controls, cached the same way —
+    // [chain][effect type][control index]. Read once per block into fxValues,
+    // which is what the chains hand to their effects.
+    using EffectParamPtrs = std::array<std::atomic<float>*, VocalFx::kMaxEffectParams>;
+    std::array<std::array<EffectParamPtrs, (size_t) VocalFx::EffectType::NumTypes>, numFxChains>
+        fxEffectParams {};
+
+    std::array<VocalFx::ChainParamValues, numFxChains> fxValues {};
+
     // 63C-17 lazy-allocation servicer: a message-thread timer that constructs
     // requested effect instances and frees retired ones (EffectChain mailboxes).
     class ChainServicer final : public juce::Timer
@@ -226,6 +248,11 @@ private:
     /** Message thread: forwards each slot's desired type to its chain so
         instances get built/retired off the audio thread. */
     void serviceFxChains();
+
+    /** Reads every effect control into fxValues. Called once per block before
+        the chains run — and once at construction, so an effect built before the
+        first block still starts from the real settings. */
+    void snapshotFxValues() noexcept;
 
     // Per-sample mono-summed dry input — modulator for the sub vocoder.
     std::vector<float> monoInputScratch;

@@ -175,6 +175,13 @@ public:
         // ---- Knock the furniture back out of them ------------------------
         for (const auto& entry : inkables)
         {
+            // A registered component that is off screen — swapped out of the
+            // plate while a page is drilled into, say — keeps its last bounds,
+            // so intersection alone would have the bars knocking out furniture
+            // that is no longer there.
+            if (! entry.component->isShowing())
+                continue;
+
             if (! entry.component->getBounds().intersects (getBounds()))
                 continue;
 

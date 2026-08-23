@@ -148,9 +148,39 @@ target_sources(SolVoiceTuner PRIVATE
     Source/PitchShifter.h
     Source/SolLookAndFeel.h
     Source/VocalFx.h
+    Source/VocalEffectBase.h
+    Source/EffectParams.h
     Source/EffectChain.h
+    Source/SpaceDustEffects.h
     Source/OscilloscopeComponent.cpp
     Source/OscilloscopeComponent.h
+
+    # Space Dust's effects chain, ported from Synth VST V2 (63C-8). The DSP is
+    # upstream's, unchanged except where noted in-file; SpaceDustEffects.h above
+    # is what maps each one onto a chain slot's single Amount macro.
+    Source/fx/SolPingPongDelay.h
+    Source/fx/SpaceDustBitCrusher.cpp
+    Source/fx/SpaceDustBitCrusher.h
+    Source/fx/SpaceDustCompressor.cpp
+    Source/fx/SpaceDustCompressor.h
+    Source/fx/SpaceDustFinalEQ.cpp
+    Source/fx/SpaceDustFinalEQ.h
+    Source/fx/SpaceDustFlanger.cpp
+    Source/fx/SpaceDustFlanger.h
+    Source/fx/SpaceDustGrainDelay.cpp
+    Source/fx/SpaceDustGrainDelay.h
+    Source/fx/SpaceDustLofi.cpp
+    Source/fx/SpaceDustLofi.h
+    Source/fx/SpaceDustPhaser.cpp
+    Source/fx/SpaceDustPhaser.h
+    Source/fx/SpaceDustReverb.cpp
+    Source/fx/SpaceDustReverb.h
+    Source/fx/SpaceDustSoftClipper.cpp
+    Source/fx/SpaceDustSoftClipper.h
+    Source/fx/SpaceDustTranceGate.cpp
+    Source/fx/SpaceDustTranceGate.h
+    Source/fx/VoidVerbReverb.cpp
+    Source/fx/VoidVerbReverb.h
 )
 
 # ----------------------------------------------------------------------------
@@ -211,3 +241,52 @@ source_group("Source" REGULAR_EXPRESSION "Source/.*")
 add_executable (SolVoiceTuner_KeyDumpConsole EXCLUDE_FROM_ALL
     tools/KeyDumpConsole.cpp)
 target_include_directories (SolVoiceTuner_KeyDumpConsole PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source")
+
+# ----------------------------------------------------------------------------
+# Dev helper: run every effect type headless and check the audio it produces
+#
+#   cmake --build build --config Release --target SolVoiceTuner_FxSmokeTest
+#   ./build/Release/SolVoiceTuner_FxSmokeTest.exe
+#
+# Compiles the ported DSP again rather than linking the plugin's SharedCode, so
+# it stays a plain console binary with no plugin-client machinery in the way.
+# ----------------------------------------------------------------------------
+add_executable (SolVoiceTuner_FxSmokeTest EXCLUDE_FROM_ALL
+    tools/FxSmokeTest.cpp
+    Source/fx/SpaceDustBitCrusher.cpp
+    Source/fx/SpaceDustCompressor.cpp
+    Source/fx/SpaceDustFinalEQ.cpp
+    Source/fx/SpaceDustFlanger.cpp
+    Source/fx/SpaceDustGrainDelay.cpp
+    Source/fx/SpaceDustLofi.cpp
+    Source/fx/SpaceDustPhaser.cpp
+    Source/fx/SpaceDustReverb.cpp
+    Source/fx/SpaceDustSoftClipper.cpp
+    Source/fx/SpaceDustTranceGate.cpp
+    Source/fx/VoidVerbReverb.cpp)
+
+target_include_directories (SolVoiceTuner_FxSmokeTest PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/Source"
+    # juce_generate_juce_header puts JuceHeader.h here for the plugin target;
+    # the ported effects reach for it the same way the plugin's own files do.
+    "${CMAKE_BINARY_DIR}/SolVoiceTuner_artefacts/JuceLibraryCode"
+    "$<TARGET_PROPERTY:SolVoiceTuner,INTERFACE_INCLUDE_DIRECTORIES>")
+
+add_dependencies (SolVoiceTuner_FxSmokeTest SolVoiceTuner)
+
+target_compile_definitions (SolVoiceTuner_FxSmokeTest PRIVATE
+    $<TARGET_PROPERTY:SolVoiceTuner,INTERFACE_COMPILE_DEFINITIONS>)
+
+target_link_libraries (SolVoiceTuner_FxSmokeTest PRIVATE
+    SolVoiceTunerAssets              # JuceHeader.h pulls in BinaryData.h
+    juce::juce_audio_utils
+    juce::juce_audio_processors
+    juce::juce_audio_formats
+    juce::juce_dsp
+    juce::juce_gui_extra
+    juce::juce_gui_basics
+    juce::juce_graphics
+    juce::juce_events
+    juce::juce_core
+    juce::juce_data_structures
+    juce::juce_recommended_config_flags)

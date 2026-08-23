@@ -8,7 +8,9 @@
 
       * VocalEffect  — base interface: prepare / process / reset plus a single
         smoothed "Amount" macro per effect (one obvious sound, one knob).
-      * SunSaturator — proof-of-architecture warm tanh saturator.
+        Lives in VocalEffectBase.h with the EffectType list and SunSaturator.
+      * The effects themselves — Space Dust's chain, ported in Source/fx/ and
+        mapped onto the Amount macro in SpaceDustEffects.h (63C-8).
       * EffectChain  — 25 ordered slots, each empty or holding one effect.
         Signal flows slot 0 -> 24. Swaps/reorders are click-free: a slot fades
         its wet path to silence, exchanges the effect, then fades back in.
@@ -30,6 +32,9 @@
 
 #include <JuceHeader.h>
 #include "VocalFx.h"
+#include "VocalEffectBase.h"
+#include "EffectParams.h"
+#include "SpaceDustEffects.h"
 
 #include <array>
 #include <atomic>
@@ -38,106 +43,6 @@
 
 namespace VocalFx
 {
-    /** Every effect the chain can host. Order is the APVTS choice-parameter
-        order — append new types at the end, never reorder, or saved sessions
-        remap to the wrong sound. */
-    enum class EffectType : int
-    {
-        Empty = 0,
-        Saturate,
-        NumTypes
-    };
-
-    inline const char* effectTypeName (EffectType t) noexcept
-    {
-        switch (t)
-        {
-            case EffectType::Saturate: return "Saturate";
-            case EffectType::Empty:
-            case EffectType::NumTypes: break;
-        }
-        return "Empty";
-    }
-
-    //==============================================================================
-    /** Base interface for one wheel effect. Exactly one macro: Amount in [0, 1],
-        smoothed internally so scroll/automation never zippers. */
-    class VocalEffect
-    {
-    public:
-        virtual ~VocalEffect() = default;
-
-        virtual void prepare (double sampleRate, int maxBlockSize, int numChannels) = 0;
-        virtual void reset() noexcept = 0;
-
-        /** Process in place. Only called while the slot is audible. */
-        virtual void process (juce::AudioBuffer<float>& buffer) noexcept = 0;
-
-        void setAmount (float a) noexcept          { amountRamp.setTarget (juce::jlimit (0.0f, 1.0f, a)); }
-        void setAmountImmediate (float a) noexcept { amountRamp.reset (juce::jlimit (0.0f, 1.0f, a)); }
-
-        /** Set by the factory; lets the audio thread identify a handed-off
-            instance without any further synchronisation. */
-        EffectType typeTag { EffectType::Empty };
-
-    protected:
-        GainRamp amountRamp;
-    };
-
-    //==============================================================================
-    /** Warm tanh saturator — the end-to-end proof effect for the chain.
-        Amount sweeps drive 1x -> 10x with small-signal makeup so it grows
-        harmonically dense, not just loud. */
-    class SunSaturator : public VocalEffect
-    {
-    public:
-        void prepare (double sampleRate, int, int) override
-        {
-            amountRamp.prepare (sampleRate, 20.0f);
-            reset();
-        }
-
-        void reset() noexcept override { amountRamp.reset (amountRamp.target); }
-
-        void process (juce::AudioBuffer<float>& buffer) noexcept override
-        {
-            const int N   = buffer.getNumSamples();
-            const int chs = buffer.getNumChannels();
-
-            for (int i = 0; i < N; ++i)
-            {
-                const float a      = amountRamp.next();
-                const float drive  = 1.0f + a * 9.0f;
-                const float makeup = 1.0f / std::pow (drive, 0.75f);
-
-                for (int c = 0; c < chs; ++c)
-                {
-                    float* x = buffer.getWritePointer (c);
-                    x[i] = std::tanh (x[i] * drive) * makeup;
-                }
-            }
-        }
-    };
-
-    //==============================================================================
-    /** Constructs a fresh, unprepared instance of the given type.
-        Message thread (or prepare-time) only — never the audio thread. */
-    inline std::unique_ptr<VocalEffect> createEffect (EffectType t)
-    {
-        std::unique_ptr<VocalEffect> fx;
-
-        switch (t)
-        {
-            case EffectType::Saturate:  fx = std::make_unique<SunSaturator>(); break;
-            case EffectType::Empty:
-            case EffectType::NumTypes:  break;
-        }
-
-        if (fx != nullptr)
-            fx->typeTag = t;
-        return fx;
-    }
-
     //==============================================================================
     /** 25 ordered slots of VocalEffects, processed in slot order. All slot
         changes go through a per-slot wet-gain fade (~8 ms tau): fade out ->
@@ -173,9 +78,10 @@ namespace VocalFx
                 s.freeAllInstances();
                 s.wet.prepare (sampleRate, 8.0f);
                 s.wet.reset (0.0f);
+                s.amountRamp.prepare (sampleRate, 20.0f);
+                s.amountRamp.reset (s.amountRamp.target);
                 s.active  = EffectType::Empty;
                 s.desired = EffectType::Empty;
-                s.amount  = 1.0f;
                 s.lastProvidedType = EffectType::Empty;
             }
         }
@@ -198,7 +104,10 @@ namespace VocalFx
             if (auto fx = createEffect (t))
             {
                 fx->prepare (spec.sampleRate, spec.blockSize, spec.channels);
-                fx->setAmountImmediate (s.amount);
+
+                if (paramValues != nullptr)
+                    fx->applyParams (paramValues->forType (t));
+
                 s.current = fx.release();
                 s.wet.reset (1.0f);
             }
@@ -252,12 +161,27 @@ namespace VocalFx
                 slots[(size_t) slot].desired = clampType (t);
         }
 
-        /** Audio thread, before process(): the slot's Amount macro. */
+        /** Audio thread, before process(): how much of this slot is heard.
+
+            Every effect carries its own Mix where Space Dust gives it one; this
+            is the slot's own trim on top, so a placed effect can be leaned on or
+            backed off without touching its settings. It multiplies the same wet
+            gain the swap fade uses, so the two cannot fight. */
         void setSlotAmount (int slot, float amount) noexcept
         {
             if (juce::isPositiveAndBelow (slot, kNumSlots))
-                slots[(size_t) slot].amount = juce::jlimit (0.0f, 1.0f, amount);
+                slots[(size_t) slot].amountRamp.setTarget (juce::jlimit (0.0f, 1.0f, amount));
         }
+
+        /** Audio thread, before process(): the host's playhead, for the effects
+            that follow tempo (Trance Gate, Delay). Null is fine — they fall back
+            to a free rate. Not stored beyond the block it is handed in for. */
+        void setPlayHead (juce::AudioPlayHead* ph) noexcept { playHead = ph; }
+
+        /** Audio thread, before process(): this chain's control values for the
+            coming block, one set per effect type. Borrowed for the block only —
+            the processor owns it. */
+        void setParamValues (const ChainParamValues* values) noexcept { paramValues = values; }
 
         void reset() noexcept
         {
@@ -291,11 +215,24 @@ namespace VocalFx
                 if (fx == nullptr)
                     continue;                       // Empty slot: bit-exact passthrough
 
-                fx->setAmount (s.amount);
+                if (paramValues != nullptr)
+                    fx->applyParams (paramValues->forType (s.active));
 
-                // Fully bypassed and staying bypassed — skip the work.
-                if (s.wet.current < kSilentWet && s.wet.target < kSilentWet)
+                fx->setPlayHead (playHead);
+
+                // Fully bypassed and staying bypassed — skip the work. Both the
+                // swap fade and the slot's own trim have to be down for that:
+                // either one alone silences the slot, but not permanently.
+                const bool fadedOut = s.wet.current < kSilentWet && s.wet.target < kSilentWet;
+                const bool trimmedOut = s.amountRamp.current < kSilentWet
+                                     && s.amountRamp.target  < kSilentWet;
+
+                if (fadedOut || trimmedOut)
+                {
+                    // Still advance the ramps, or coming back off zero jumps.
+                    for (int i = 0; i < N; ++i) { s.wet.next(); s.amountRamp.next(); }
                     continue;
+                }
 
                 // Dry/wet crossfade: effect renders into scratch, output blends.
                 for (int c = 0; c < chs; ++c)
@@ -306,7 +243,7 @@ namespace VocalFx
 
                 for (int i = 0; i < N; ++i)
                 {
-                    const float w = s.wet.next();
+                    const float w = s.wet.next() * s.amountRamp.next();
                     for (int c = 0; c < chs; ++c)
                     {
                         float* out = buffer.getWritePointer (c);
@@ -341,8 +278,9 @@ namespace VocalFx
 
             EffectType active  { EffectType::Empty };
             EffectType desired { EffectType::Empty };
-            float      amount  { 1.0f };
-            GainRamp   wet;
+
+            GainRamp   wet;          //!< swap fade: 0 or 1
+            GainRamp   amountRamp;   //!< the slot's own trim, from its Amount parameter
 
             /** Only when audio is guaranteed not running. */
             void freeAllInstances()
@@ -399,7 +337,10 @@ namespace VocalFx
             s.current = incoming;
             s.active  = incoming->typeTag;
             s.current->reset();
-            s.current->setAmountImmediate (s.amount);
+
+            if (paramValues != nullptr)
+                s.current->applyParams (paramValues->forType (s.active));
+
             s.wet.setTarget (1.0f);
         }
 
@@ -413,5 +354,10 @@ namespace VocalFx
         PrepareSpec spec;
         std::array<Slot, kNumSlots> slots;
         juce::AudioBuffer<float>    scratch;
+
+        /** Both borrowed for the current block only — see setPlayHead and
+            setParamValues. */
+        juce::AudioPlayHead*    playHead    = nullptr;
+        const ChainParamValues* paramValues = nullptr;
     };
 } // namespace VocalFx

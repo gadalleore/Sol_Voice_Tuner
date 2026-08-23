@@ -1,0 +1,317 @@
+//==============================================================================
+// SpaceDust Soft Clipper - KClip 3-style mastering clipper
+//
+// Modes: Smooth (tanh), Crisp (cubic), Tube (even harmonics), Tape (roll-off),
+//       Guitar (asymmetric). Oversampling 2x-16x to reduce aliasing.
+//==============================================================================
+
+#include "SpaceDustSoftClipper.h"
+#include <cmath>
+
+namespace
+{
+
+    // Fast tanh approximation (rational, avoids std::tanh for speed)
+    inline float fastTanh(float x)
+    {
+        x = juce::jlimit(-9.0f, 9.0f, x);
+        const float x2 = x * x;
+        return x * (27.0f + x2) / (27.0f + 9.0f * x2);
+    }
+
+    /** Knee maps 0.3 (hard) .. 1.0 (soft) from UI; trims input before drive-shaped clipping. */
+    inline float kneeInputTrim(float kneeMapped)
+    {
+        return juce::jmap(kneeMapped, 0.3f, 1.0f, 1.28f, 0.62f);
+    }
+}
+
+//==============================================================================
+float SpaceDustSoftClipper::clipSmooth(float x, float k, float t) const
+{
+    // tanh-based: knee trims level into the curve (low knee = harder, high = more gradual)
+    x *= kneeInputTrim(t);
+    return fastTanh(k * juce::jlimit(-2.0f, 2.0f, x));
+}
+
+float SpaceDustSoftClipper::clipCrisp(float x, float k, float t) const
+{
+    // Cubic: 1.5*x - 0.5*x^3 for |x|<1; knee widens soft region (threshold below 1.0)
+    x *= kneeInputTrim(t);
+    x = k * juce::jlimit(-2.0f, 2.0f, x);
+    const float th = juce::jmap(t, 0.3f, 1.0f, 0.96f, 0.72f);
+    const float ax = std::abs(x);
+    if (ax >= th)
+    {
+        const float excess = ax - th;
+        const float span = juce::jmax(1.0e-4f, 1.0f - th);
+        const float u = juce::jlimit(0.0f, 1.0f, excess / span);
+        const float yEnd = (x > 0.0f) ? 1.0f : -1.0f;
+        const float yTh = (x > 0.0f) ? (1.5f * th - 0.5f * th * th * th)
+                                     : -(1.5f * th - 0.5f * th * th * th);
+        return yTh + u * (yEnd - yTh);
+    }
+    return 1.5f * x - 0.5f * x * x * x;
+}
+
+float SpaceDustSoftClipper::clipTube(float x, float k, float t) const
+{
+    // Asymmetric: different curves for +/-, adds even harmonics
+    x *= kneeInputTrim(t);
+    x = k * juce::jlimit(-2.0f, 2.0f, x);
+    const float negSqueeze = juce::jmap(t, 0.3f, 1.0f, 0.88f, 0.82f);
+    if (x >= 0.0f)
+        return fastTanh(x);
+    return -fastTanh(-x * negSqueeze);
+}
+
+float SpaceDustSoftClipper::clipTape(float x, float k, float t) const
+{
+    // Soft saturation: x / (1 + |x|^n), tape-like compression
+    x *= kneeInputTrim(t);
+    x = k * juce::jlimit(-2.0f, 2.0f, x);
+    const float ax = std::abs(x);
+    const float p = juce::jmap(t, 0.3f, 1.0f, 2.15f, 1.65f);
+    const float denom = 1.0f + std::pow(ax, p);
+    return x / denom;
+}
+
+float SpaceDustSoftClipper::clipGuitar(float x, float k, float t) const
+{
+    // Asymmetric diode: sign(x) * (1 - exp(-k*|x|))
+    x *= kneeInputTrim(t);
+    x = k * juce::jlimit(-2.0f, 2.0f, x);
+    const float ax = std::abs(x);
+    const float skew = juce::jmap(t, 0.3f, 1.0f, 1.08f, 0.82f);
+    float y;
+    if (x >= 0.0f)
+        y = 1.0f - std::exp(-ax * skew);
+    else
+        y = -(1.0f - std::exp(-ax * skew)) * 0.92f;
+    return juce::jlimit(-1.0f, 1.0f, y);
+}
+
+//==============================================================================
+void SpaceDustSoftClipper::ensureOversampler(int factor, int requiredBlockSize)
+{
+    // The oversampler's internal buffers must cover the largest block we will feed
+    // processSamplesUp. Never go below the prepared maximum, and grow if a bigger
+    // block ever arrives (e.g. a host re-preparing at a larger size, or a block
+    // larger than maximumBlockSize). Missing this overruns the oversampler's heap
+    // buffers — ASan: heap-buffer-overflow in Oversampling::processSamplesUp.
+    const size_t neededBlock = static_cast<size_t>(
+        juce::jmax(1, requiredBlockSize, static_cast<int>(spec_.maximumBlockSize)));
+
+    if (oversampler_ != nullptr
+        && currentOversampleFactor_ == factor
+        && initializedBlockSize_ >= neededBlock)
+        return;
+
+    currentOversampleFactor_ = factor;
+    oversampler_.reset();
+    initializedBlockSize_ = 0;
+
+    if (factor <= 1)
+        return;
+
+    // JUCE: factor is exponent -> 2^factor. So 2x=1, 4x=2, 8x=3, 16x=4
+    int exp = 1;
+    if (factor >= 16) exp = 4;
+    else if (factor >= 8) exp = 3;
+    else if (factor >= 4) exp = 2;
+    else if (factor >= 2) exp = 1;
+
+    oversampler_ = std::make_unique<Oversampler>(
+        static_cast<size_t>(spec_.numChannels),
+        static_cast<size_t>(exp),
+        Oversampler::filterHalfBandPolyphaseIIR,
+        true,
+        false);
+
+    oversampler_->initProcessing(neededBlock);
+    oversampler_->reset();
+    initializedBlockSize_ = neededBlock;
+}
+
+//==============================================================================
+void SpaceDustSoftClipper::prepare(const juce::dsp::ProcessSpec& spec)
+{
+    spec_ = spec;
+    reset();
+
+    const double rampSec = 0.02;
+    smoothedDrive_.reset(spec.sampleRate, rampSec);
+    smoothedKnee_.reset(spec.sampleRate, rampSec);
+    smoothedMix_.reset(spec.sampleRate, rampSec);
+
+    smoothedDrive_.setCurrentAndTargetValue(params_.drive);
+    smoothedKnee_.setCurrentAndTargetValue(params_.knee);
+    smoothedMix_.setCurrentAndTargetValue(params_.mix);
+
+    tapeFilterL_.reset();
+    tapeFilterR_.reset();
+    juce::dsp::ProcessSpec filterSpec;
+    filterSpec.sampleRate = spec.sampleRate;
+    filterSpec.maximumBlockSize = spec.maximumBlockSize;
+    filterSpec.numChannels = 1;
+    tapeFilterL_.prepare(filterSpec);
+    tapeFilterR_.prepare(filterSpec);
+    tapeFilterL_.setCutoffFrequency(8000.0f);
+    tapeFilterR_.setCutoffFrequency(8000.0f);
+    tapeFilterL_.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
+    tapeFilterR_.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
+
+    ensureOversampler(params_.oversample, static_cast<int>(spec_.maximumBlockSize));
+
+    // Sol port: see dryScratch_ in the header.
+    dryScratch_.setSize(juce::jmax(2, (int) spec.numChannels),
+                        juce::jmax(1, (int) spec.maximumBlockSize), false, true, true);
+}
+
+void SpaceDustSoftClipper::reset()
+{
+    if (oversampler_ != nullptr)
+        oversampler_->reset();
+    tapeFilterL_.reset();
+    tapeFilterR_.reset();
+}
+
+void SpaceDustSoftClipper::setParameters(const Parameters& p)
+{
+    params_ = p;
+    smoothedDrive_.setTargetValue(p.drive);
+    smoothedKnee_.setTargetValue(p.knee);
+    smoothedMix_.setTargetValue(p.mix);
+}
+
+//==============================================================================
+void SpaceDustSoftClipper::process(juce::AudioBuffer<float>& buffer)
+{
+    if (!params_.enabled || buffer.getNumSamples() == 0)
+        return;
+
+    const int numCh = buffer.getNumChannels();
+    const int numSamples = buffer.getNumSamples();
+    const int mode = juce::jlimit(0, 4, params_.mode);
+
+    // Drive: 0.5-5.0
+    const float driveMin = 0.5f;
+    const float driveMax = 5.0f;
+    const float kneeMin = 0.3f;
+    const float kneeMax = 1.0f;
+
+    // Sol port: the dry copy is a member sized in prepare(). Upstream declares a
+    // local AudioBuffer here, which allocates on the audio thread — Sol's chain
+    // forbids that (see EffectChain.h). The defensive grow below only fires if a
+    // host exceeds the block size it declared.
+    auto& dryBuffer = dryScratch_;
+    const bool needDry = (params_.mix < 0.999f);
+    if (needDry)
+    {
+        if (dryBuffer.getNumChannels() < numCh || dryBuffer.getNumSamples() < numSamples)
+            dryBuffer.setSize(juce::jmax(dryBuffer.getNumChannels(), numCh),
+                              juce::jmax(dryBuffer.getNumSamples(), numSamples),
+                              false, true, true);
+
+        for (int ch = 0; ch < numCh; ++ch)
+            dryBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
+    }
+
+    ensureOversampler(params_.oversample, numSamples);
+
+    if (oversampler_ != nullptr && params_.oversample >= 2)
+    {
+        juce::dsp::AudioBlock<float> block(buffer);
+        auto blockUp = oversampler_->processSamplesUp(block);
+
+        const size_t osNumSamples = blockUp.getNumSamples();
+        const size_t osFactor = oversampler_->getOversamplingFactor();
+
+        for (size_t i = 0; i < osNumSamples; ++i)
+        {
+            const int origIdx = static_cast<int>(i / osFactor);
+            float drv, kn;
+            if (origIdx == 0 || i % osFactor == 0)
+            {
+                drv = driveMin + (driveMax - driveMin) * smoothedDrive_.getNextValue();
+                kn = kneeMin + (kneeMax - kneeMin) * smoothedKnee_.getNextValue();
+            }
+            else
+            {
+                drv = driveMin + (driveMax - driveMin) * smoothedDrive_.getCurrentValue();
+                kn = kneeMin + (kneeMax - kneeMin) * smoothedKnee_.getCurrentValue();
+            }
+
+            for (size_t ch = 0; ch < blockUp.getNumChannels(); ++ch)
+            {
+                float* ptr = blockUp.getChannelPointer(ch);
+                float x = ptr[i];
+                float y;
+                switch (mode)
+                {
+                    case 0: y = clipSmooth(x, drv, kn); break;
+                    case 1: y = clipCrisp(x, drv, kn);  break;
+                    case 2: y = clipTube(x, drv, kn);   break;
+                    case 3: y = clipTape(x, drv, kn);   break;
+                    default: y = clipGuitar(x, drv, kn); break;
+                }
+                ptr[i] = y;
+            }
+        }
+
+        oversampler_->processSamplesDown(block);
+    }
+    else
+    {
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const float drv = driveMin + (driveMax - driveMin) * smoothedDrive_.getNextValue();
+            const float kn = kneeMin + (kneeMax - kneeMin) * smoothedKnee_.getNextValue();
+
+            for (int ch = 0; ch < numCh; ++ch)
+            {
+                auto* ptr = buffer.getWritePointer(ch);
+                float x = ptr[i];
+                float y;
+                switch (mode)
+                {
+                    case 0: y = clipSmooth(x, drv, kn); break;
+                    case 1: y = clipCrisp(x, drv, kn);  break;
+                    case 2: y = clipTube(x, drv, kn);   break;
+                    case 3: y = clipTape(x, drv, kn);   break;
+                    default: y = clipGuitar(x, drv, kn); break;
+                }
+                ptr[i] = y;
+            }
+        }
+    }
+
+    // Tape mode HF glue (same path for oversampled + non-oversampled output)
+    if (mode == 3)
+    {
+        for (int ch = 0; ch < numCh; ++ch)
+        {
+            auto& filt = (ch == 0) ? tapeFilterL_ : tapeFilterR_;
+            auto* ptr = buffer.getWritePointer(ch);
+            for (int i = 0; i < numSamples; ++i)
+                ptr[i] = filt.processSample(0, ptr[i]);
+        }
+    }
+
+    // Dry/wet mix
+    // Sol port: >= rather than ==, because the member scratch is sized for the
+    // largest block, not this one.
+    if (needDry && dryBuffer.getNumSamples() >= numSamples)
+    {
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const float mix = smoothedMix_.getNextValue();
+            for (int ch = 0; ch < numCh; ++ch)
+            {
+                auto* wet = buffer.getWritePointer(ch);
+                const float* dry = dryBuffer.getReadPointer(ch);
+                wet[i] = dry[i] * (1.0f - mix) + wet[i] * mix;
+            }
+        }
+    }
+}

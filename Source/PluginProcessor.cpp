@@ -65,6 +65,23 @@ PitchCorrectorAudioProcessor::PitchCorrectorAudioProcessor()
             fxAmountParams[(size_t) c][(size_t) s] = apvts.getRawParameterValue (fxAmountParamId (c, s));
         }
 
+    // 63C-8: cache every effect control's raw value pointer, so the audio thread
+    // never builds a parameter-id String.
+    for (int c = 0; c < numFxChains; ++c)
+        for (int t = 1; t < (int) VocalFx::EffectType::NumTypes; ++t)
+        {
+            const auto type = (VocalFx::EffectType) t;
+            const auto list = VocalFx::effectParams (type);
+
+            for (int i = 0; i < list.count; ++i)
+                fxEffectParams[(size_t) c][(size_t) t][(size_t) i] =
+                    apvts.getRawParameterValue (fxEffectParamId (c, type, list[i].id));
+        }
+
+    // Seed the snapshot so the very first block — and any instance built before
+    // one has been taken — sees real values rather than zeros.
+    snapshotFxValues();
+
     for (int v = 0; v < kNumHarmony; ++v)
     {
         harmEnableParams  [(size_t) v] = apvts.getRawParameterValue (harmEnableParamId (v));
@@ -93,6 +110,20 @@ void PitchCorrectorAudioProcessor::serviceFxChains()
         for (int s = 0; s < VocalFx::EffectChain::kNumSlots; ++s)
             fxChains[(size_t) c].serviceSlot (s, (VocalFx::EffectType)
                 juce::roundToInt (fxTypeParams[(size_t) c][(size_t) s]->load()));
+}
+
+void PitchCorrectorAudioProcessor::snapshotFxValues() noexcept
+{
+    for (size_t c = 0; c < (size_t) numFxChains; ++c)
+        for (size_t t = 1; t < (size_t) VocalFx::EffectType::NumTypes; ++t)
+        {
+            const auto list = VocalFx::effectParams ((VocalFx::EffectType) t);
+            auto&      dest = fxValues[c].v[t];
+
+            for (int i = 0; i < list.count; ++i)
+                if (auto* raw = fxEffectParams[c][t][(size_t) i])
+                    dest[(size_t) i] = raw->load (std::memory_order_relaxed);
+        }
 }
 
 
@@ -284,7 +315,51 @@ PitchCorrectorAudioProcessor::createParameterLayout()
 
             params.push_back (std::make_unique<APF> (juce::ParameterID { fxAmountParamId (c, s), 1 },
                                                      slotName + " Amount",
-                                                     Range (0.0f, 1.0f, 0.01f), 0.5f, roboticAttrs));
+                                                     Range (0.0f, 1.0f, 0.01f), 1.0f, roboticAttrs));
+        }
+
+    // Every effect's own controls — the full set it has in Space Dust, declared
+    // in EffectParams.h and built from there so a knob cannot exist in the UI
+    // without existing here (63C-8).
+    //
+    // ONE SET PER CHAIN, not per slot: in Space Dust each effect exists once,
+    // with one panel, and the same holds here — a slot decides where an effect
+    // runs in the order, not which knobs it has. Per-slot sets would multiply
+    // these by 25 and give the host a parameter list nobody could use.
+    for (int c = 0; c < numFxChains; ++c)
+        for (int t = 1; t < (int) VocalFx::EffectType::NumTypes; ++t)
+        {
+            const auto type       = (VocalFx::EffectType) t;
+            const auto typeName   = juce::String (VocalFx::effectTypeName (type));
+            const auto namePrefix = juce::String (fxChainDisplayName (c)) + " " + typeName + " ";
+
+            for (const auto& p : VocalFx::effectParams (type))
+            {
+                const auto id      = fxEffectParamId (c, type, p.id);
+                const auto name    = namePrefix + p.name;
+
+                switch (p.kind)
+                {
+                    case VocalFx::ParamKind::Toggle:
+                        params.push_back (std::make_unique<APB> (juce::ParameterID { id, 1 },
+                                                                 name, p.def > 0.5f));
+                        break;
+
+                    case VocalFx::ParamKind::Choice:
+                        params.push_back (std::make_unique<APC> (
+                            juce::ParameterID { id, 1 }, name,
+                            juce::StringArray::fromTokens (p.choices, "|", ""),
+                            juce::jlimit (0, juce::jmax (0, juce::StringArray::fromTokens (p.choices, "|", "").size() - 1),
+                                          (int) std::lround (p.def))));
+                        break;
+
+                    case VocalFx::ParamKind::Knob:
+                    default:
+                        params.push_back (std::make_unique<APF> (juce::ParameterID { id, 1 }, name,
+                                                                 VocalFx::effectParamRange (p), p.def));
+                        break;
+                }
+            }
         }
 
 
@@ -362,9 +437,11 @@ void PitchCorrectorAudioProcessor::prepareToPlay (double sampleRate, int samples
     // Chains drop all instances on prepare; re-install synchronously from the
     // params so session load has no async gap (audio is not running here).
     fxChainsPrepared.store (false, std::memory_order_release);
+    snapshotFxValues();   // so installImmediate hands each new instance its settings
     for (int c = 0; c < numFxChains; ++c)
     {
         fxChains[(size_t) c].prepare (sampleRate, samplesPerBlock, ch);
+        fxChains[(size_t) c].setParamValues (&fxValues[(size_t) c]);
         for (int s = 0; s < VocalFx::EffectChain::kNumSlots; ++s)
         {
             fxChains[(size_t) c].setSlotAmount (s, fxAmountParams[(size_t) c][(size_t) s]->load());
@@ -928,6 +1005,12 @@ void PitchCorrectorAudioProcessor::applyFxChain (int chain, juce::AudioBuffer<fl
         fx.setSlotAmount (s, fxAmountParams[(size_t) chain][(size_t) s]->load());
     }
 
+    // Tempo for the synced effects (Trance Gate, Delay), and this chain's
+    // control values. Both handed down per block and not retained — see
+    // EffectChain::setPlayHead / setParamValues.
+    fx.setPlayHead (getPlayHead());
+    fx.setParamValues (&fxValues[(size_t) chain]);
+
     fx.process (buffer);
 }
 
@@ -1066,6 +1149,11 @@ void PitchCorrectorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         for (int c = 1; c < chs; ++c)
             buffer.copyFrom (c, 0, buffer, 0, 0, N);
     }
+
+    // Read every effect control once for the whole block. All three chains run
+    // from this one snapshot, so the input and output chains cannot disagree
+    // about what a parameter was worth mid-block.
+    snapshotFxValues();
 
     // === Input Global FX chain (63C-15) ===
     // First stage of the graph: shapes the signal the tuner detects and corrects.

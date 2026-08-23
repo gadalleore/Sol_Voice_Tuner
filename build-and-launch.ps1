@@ -26,6 +26,15 @@ $LegacyVst3Names = @(
     "PitchCorrectorVST.vst3"
 )
 
+# Older builds shipped under a different company sub-folder. Those copies carry the
+# SAME product name — and so the same plugin UID — as the live one, which means a DAW
+# scanning both folders can load whichever it happens to find first. Left alone, a
+# May-2026 build shadowed every new one. Only "$ProductName.vst3" is removed from
+# these; anything else in them is somebody else's and is left where it is.
+$LegacyVst3Dirs = @(
+    "Shades"
+)
+
 # ── Step 0: Optional clean ────────────────────────────────────────────────
 if ($Clean -and (Test-Path "build")) {
     Write-Host "[$Plugin] -Clean: removing build/" -ForegroundColor Yellow
@@ -105,6 +114,20 @@ $vst3Roots = @(
 $copiedAny = $false
 foreach ($root in $vst3Roots) {
     if (-not (Test-Path $root)) { continue }
+
+    # Drop our plugin out of any former company folder before installing the new one.
+    foreach ($legacyDir in $LegacyVst3Dirs) {
+        $legacyPath = Join-Path (Join-Path $root $legacyDir) $Vst3Name
+        if (Test-Path $legacyPath) {
+            try {
+                Remove-Item -Recurse -Force $legacyPath -ErrorAction Stop
+                Write-Host "[$Plugin] Removed stale: $legacyPath" -ForegroundColor DarkGray
+            } catch {
+                Write-Host "[$Plugin] Could not remove stale $legacyPath ($($_.Exception.Message))" -ForegroundColor DarkYellow
+            }
+        }
+    }
+
     $shadesDir = Join-Path $root $ShadesName
     if (-not (Test-Path $shadesDir)) {
         try {

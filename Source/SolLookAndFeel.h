@@ -3,17 +3,28 @@
     ----------------
     Official 63C brand LookAndFeel for "Sol Voice Tuner".
 
-    Interim palette (cosmic navy, inherited from the former Shades branding);
-    to be replaced by the 63C sun-white frutiger-aero theme (Linear 63C-10):
+    NIGHT PANEL (2026-08-22). The sun-white paper-and-ink face is retired; Sol
+    now reads as a modern instrument rather than a printed page. What changed
+    and why:
 
-        background  : deep navy 0xff0a0a1f
-        panels      : 0xff1a1a2f / 0xff1a1a30
-        outlines    : 0xff3a3a5f
-        accent arc  : 0xff00d4ff (bright cyan)
-        accent glow : 0xff00b4ff
-        labels      : 0xffa0d8ff
-        values      : 0xff6dd5fa
-        title hi    : 0xffd0f4ff
+      - Dark ground. A vocal tuner is looked AT continuously while tracking,
+        usually in a dim room next to a DAW that is itself dark. A white plate
+        is the brightest object on the desk and fights the host for attention;
+        a dark one lets the live elements — level, pitch, spectrum — be the
+        only things that glow.
+      - Colour is now allowed, and carries meaning rather than decoration.
+        Sol is the sun: the primary accent is a warm amber, used for VALUE
+        (how much of a control is dialled in). A cool cyan is its opposite and
+        marks LIVE SIGNAL (what the plugin is hearing right now). Green means
+        in tune; red still means clipping, and nothing else.
+      - Sans-serif. Times New Roman gave the old face its printed quality;
+        against a dark ground at small sizes a serif reads as decorative and
+        loses legibility, so the brand face is now a UI sans.
+
+    Names are ROLES, not colours, so retuning the values below re-themes
+    everything that reads them — including the spectrum's knock-out pass, which
+    paints bars in kTitleHi and punches them back out in kBackground and so
+    inverts correctly with the palette.
 */
 
 #pragma once
@@ -26,35 +37,39 @@ public:
     //--------------------------------------------------------------------------
     // Brand palette (also exposed for the editor's paint())
     //--------------------------------------------------------------------------
-    // White paper, black ink (2026-07-28).
-    //
-    // Bright neutral surface, genuinely black text, and lens dirt as the only
-    // texture.
-    //
-    // Names are ROLES, so retuning the values re-themes everything that reads
-    // them.
-    static constexpr juce::uint32 kBackground   = 0xffffffff; // pure white
-    static constexpr juce::uint32 kPanel        = 0xffececea; // panel fill
-    static constexpr juce::uint32 kPanelLight   = 0xffffffff;
-    static constexpr juce::uint32 kOutline      = 0xffc6c6c2; // borders
-    static constexpr juce::uint32 kOutlineHi    = 0xff868682; // active border
+    // Surfaces: near-black with a slight cool cast, lifting in three steps.
+    static constexpr juce::uint32 kBackground   = 0xff0f1216; // the plate
+    static constexpr juce::uint32 kPanel        = 0xff181d23; // lifted surface
+    static constexpr juce::uint32 kPanelLight   = 0xff222932; // hover / higher
+    static constexpr juce::uint32 kOutline      = 0xff2e3742; // hairline border
+    static constexpr juce::uint32 kOutlineHi    = 0xff8a97a6; // active / hover ink
 
-    static constexpr juce::uint32 kAccentArc    = 0xff868682; // no colour accent
-    static constexpr juce::uint32 kAccentGlow   = 0xffb4b4b0;
-    static constexpr juce::uint32 kAccentToggle = 0xffe2e2de;
+    // Accents. kAccentArc is the value colour and the one most things reach
+    // for; kAccentGlow is its warmer edge, for bloom under a bright element.
+    static constexpr juce::uint32 kAccentArc    = 0xffffb03a; // sol amber — VALUE
+    static constexpr juce::uint32 kAccentGlow   = 0xffff8a3d; // warmer bloom
+    static constexpr juce::uint32 kAccentCool   = 0xff3fc7f4; // cyan — LIVE SIGNAL
+    static constexpr juce::uint32 kAccentToggle = 0xff2a3340; // toggle body, on
 
-    static constexpr juce::uint32 kLabel        = 0xff56564f; // mid grey text
-    static constexpr juce::uint32 kLabelAlt     = 0xff76766f;
-    static constexpr juce::uint32 kValue        = 0xff2e2e2b;
-    static constexpr juce::uint32 kValueAlt     = 0xff56564f;
-    static constexpr juce::uint32 kTitleHi      = 0xff0d0d0c; // black ink
-    static constexpr juce::uint32 kGroupTitle   = 0xff2e2e2b;
+    /** In tune / pass. */
+    static constexpr juce::uint32 kSuccess      = 0xff45d49a;
 
-    static constexpr juce::uint32 kKnobBodyDark = 0xffe4e4e0;
-    static constexpr juce::uint32 kKnobBodyLite = 0xfffbfbfa;
-    static constexpr juce::uint32 kKnobRimDark  = 0xffbdbdb8;
-    static constexpr juce::uint32 kKnobRimLite  = 0xffffffff;
-    static constexpr juce::uint32 kPointer      = 0xff2e2e2b;
+    /** Above 0 dBFS, and nothing else. */
+    static constexpr juce::uint32 kClip         = 0xffff5252;
+
+    // Type, brightest last.
+    static constexpr juce::uint32 kLabel        = 0xff97a3b2; // secondary text
+    static constexpr juce::uint32 kLabelAlt     = 0xff6c7887; // tertiary text
+    static constexpr juce::uint32 kValue        = 0xffe6ecf3;
+    static constexpr juce::uint32 kValueAlt     = 0xff97a3b2;
+    static constexpr juce::uint32 kTitleHi      = 0xfff2f6fa; // primary ink
+    static constexpr juce::uint32 kGroupTitle   = 0xffe6ecf3;
+
+    static constexpr juce::uint32 kKnobBodyDark = 0xff161b21;
+    static constexpr juce::uint32 kKnobBodyLite = 0xff1f262e;
+    static constexpr juce::uint32 kKnobRimDark  = 0xff2e3742;
+    static constexpr juce::uint32 kKnobRimLite  = 0xff3a4552;
+    static constexpr juce::uint32 kPointer      = 0xfff2f6fa;
 
     /** Editor sets this on `bendRangeKnob` so we can shrink only its rotary radius in `getSliderLayout`. */
     static constexpr const char* bendRangeSliderName = "SolBendRangeKnob";
@@ -63,12 +78,16 @@ public:
     static constexpr const char* solKeyNoteButtonProperty = "solKeyNote";
 
     //--------------------------------------------------------------------------
-    /** Brand typeface (2026-07-27, Giuseppe). Times New Roman is present on
-        Windows and macOS; on Linux the metric-compatible Liberation Serif is
-        the usual substitute, and JUCE falls back to the default serif if
-        neither is installed. Referenced everywhere rather than hardcoded, so
-        the whole app moves together if this changes. */
-    static constexpr const char* kBrandTypeface = "Times New Roman";
+    /** Brand typeface. A UI sans as of the night-panel pass (2026-08-22) —
+        Times New Roman gave the white plate its printed quality, but a serif
+        on a dark ground reads as decorative and loses legibility at the sizes
+        a control label actually gets.
+
+        Segoe UI is present on every supported Windows install; on macOS JUCE
+        falls back to the system sans (Helvetica/SF), which is the right face
+        there anyway. Referenced everywhere rather than hardcoded, so the whole
+        app moves together if this changes. */
+    static constexpr const char* kBrandTypeface = "Segoe UI";
 
     SolLookAndFeel()
     {
@@ -76,24 +95,26 @@ public:
 
         // Sliders
         setColour (juce::Slider::rotarySliderFillColourId,    juce::Colour (kAccentArc));
-        setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colour (kKnobRimDark));
+        setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colour (kOutline));
         setColour (juce::Slider::thumbColourId,               juce::Colour (kPointer));
         setColour (juce::Slider::textBoxTextColourId,         juce::Colour (kValue));
-        setColour (juce::Slider::textBoxBackgroundColourId,   juce::Colour (0x33000000));
-        setColour (juce::Slider::textBoxOutlineColourId,      juce::Colour (0x22000000));
+        // No box behind the number — bare ink on bare plate, same as
+        // everywhere else (Giuseppe, 2026-08-22 revamp).
+        setColour (juce::Slider::textBoxBackgroundColourId,   juce::Colours::transparentBlack);
+        setColour (juce::Slider::textBoxOutlineColourId,      juce::Colours::transparentBlack);
 
         // Labels
         setColour (juce::Label::textColourId,                 juce::Colour (kLabel));
 
         // ComboBox
         setColour (juce::ComboBox::backgroundColourId,        juce::Colour (kPanel));
-        setColour (juce::ComboBox::textColourId,              juce::Colour (kLabel));
+        setColour (juce::ComboBox::textColourId,              juce::Colour (kValue));
         setColour (juce::ComboBox::outlineColourId,           juce::Colour (kOutline));
         setColour (juce::ComboBox::arrowColourId,             juce::Colour (kAccentArc));
 
         // Popup menus
         setColour (juce::PopupMenu::backgroundColourId,       juce::Colour (kPanel));
-        setColour (juce::PopupMenu::textColourId,             juce::Colour (kLabel));
+        setColour (juce::PopupMenu::textColourId,             juce::Colour (kValue));
         setColour (juce::PopupMenu::highlightedBackgroundColourId, juce::Colour (kAccentToggle));
         setColour (juce::PopupMenu::highlightedTextColourId,  juce::Colour (kTitleHi));
 
@@ -171,23 +192,11 @@ public:
     }
 
     //--------------------------------------------------------------------------
-    // Drop-shadow text helper (used by editor + drawToggleButton)
-    //--------------------------------------------------------------------------
-    void drawTextWithShadow (juce::Graphics& g, const juce::String& text,
-                             juce::Rectangle<int> area,
-                             juce::Justification just,
-                             juce::Colour textColour,
-                             float shadowOpacity = 0.3f,
-                             int   shadowOffset  = 1)
-    {
-        g.setColour (juce::Colour (0x33000000).withAlpha (shadowOpacity));
-        g.drawText (text, area.translated (shadowOffset, shadowOffset), just, false);
-        g.setColour (textColour);
-        g.drawText (text, area, just, false);
-    }
-
-    //--------------------------------------------------------------------------
-    // Rotary slider (Space Dust style: outer glow + bevel + glowing arc + pointer)
+    // Rotary slider — flat ink dial (2026-08-22 revamp), same language as
+    // VolumeArc: no knob body, no bevel, no glow. Unlike VolumeArc this one
+    // keeps a faint full-range track, because a generic knob's zero is not
+    // always its visual "nothing" (Formant defaults centred, not at a rail),
+    // so a bare arc alone would leave no way to see an unset control's range.
     //--------------------------------------------------------------------------
     void drawRotarySlider (juce::Graphics& g,
                            int x, int y, int width, int height,
@@ -202,86 +211,50 @@ public:
         const float cx = (float) x + (float) width  * 0.5f;
         const float cy = (float) y + (float) height * 0.5f;
         const float angle = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
+        const float stroke = juce::jmax (2.0f, radius * 0.15f);
+        const float ar = radius - stroke * 0.5f;
 
-        const juce::Colour arc  (kAccentArc);
-        const juce::Colour glow (kAccentGlow);
-
-        // 1. Outer cosmic bloom
+        // Recessed full-range track: the socket the value sits in.
         {
-            const float gr = radius + 6.0f;
-            juce::ColourGradient cg (glow.withAlpha ((juce::uint8) 30), cx, cy,
-                                     glow.withAlpha ((juce::uint8) 0),  cx, cy - gr, true);
-            g.setGradientFill (cg);
-            g.fillEllipse (cx - gr, cy - gr, gr * 2.0f, gr * 2.0f);
-        }
-
-        // 2. Knob body (radial gradient)
-        {
-            juce::ColourGradient body (juce::Colour (kKnobBodyLite), cx, cy - radius * 0.35f,
-                                       juce::Colour (kKnobBodyDark), cx, cy + radius * 0.8f, false);
-            g.setGradientFill (body);
-            g.fillEllipse (cx - radius, cy - radius, radius * 2.0f, radius * 2.0f);
-        }
-
-        // 3. Bevel rim
-        {
-            const float rim = juce::jmax (1.5f, radius * 0.06f);
-            juce::ColourGradient rg (juce::Colour (kKnobRimLite), cx, cy - radius,
-                                     juce::Colour (kKnobRimDark), cx, cy + radius, false);
-            g.setGradientFill (rg);
-            g.drawEllipse (cx - radius, cy - radius, radius * 2.0f, radius * 2.0f, rim);
-        }
-
-        // 4. Glowing value arc
-        {
-            const float ar = radius + 2.0f;
-            const float at = juce::jmax (2.5f, radius * 0.09f);
-
-            juce::Path glowArc;
-            glowArc.addCentredArc (cx, cy, ar, ar, 0.0f, rotaryStartAngle, angle, true);
-            g.setColour (glow.withAlpha ((juce::uint8) 50));
-            g.strokePath (glowArc, juce::PathStrokeType (at + 4.0f,
-                                                         juce::PathStrokeType::curved,
-                                                         juce::PathStrokeType::rounded));
-
-            juce::Path crisp;
-            crisp.addCentredArc (cx, cy, ar, ar, 0.0f, rotaryStartAngle, angle, true);
-            g.setColour (arc);
-            g.strokePath (crisp, juce::PathStrokeType (at,
-                                                       juce::PathStrokeType::curved,
-                                                       juce::PathStrokeType::rounded));
-        }
-
-        // 5. Faint un-set track
-        {
-            const float tr = radius + 2.0f;
-            const float tt = juce::jmax (1.5f, radius * 0.05f);
             juce::Path track;
-            track.addCentredArc (cx, cy, tr, tr, 0.0f, angle, rotaryEndAngle, true);
-            g.setColour (juce::Colour (kKnobRimDark).withAlpha (0.4f));
-            g.strokePath (track, juce::PathStrokeType (tt,
+            track.addCentredArc (cx, cy, ar, ar, 0.0f, rotaryStartAngle, rotaryEndAngle, true);
+            g.setColour (juce::Colour (kOutline));
+            g.strokePath (track, juce::PathStrokeType (stroke,
                                                        juce::PathStrokeType::curved,
                                                        juce::PathStrokeType::rounded));
         }
 
-        // 6. Pointer
+        const bool hasValue = angle - rotaryStartAngle > 0.02f;
+
+        // Value arc in the accent, with a soft bloom under it. The bloom is
+        // what makes a lit control read as emitting rather than painted — it
+        // is the one place the old "no glow" rule is deliberately reversed.
+        if (hasValue)
         {
-            const float pl = radius * 0.55f;
-            const float pt = juce::jmax (2.0f, radius * 0.07f);
-            juce::Path p;
-            p.addRoundedRectangle (-pt * 0.5f, -radius + 4.0f, pt, pl, pt * 0.5f);
-            p.applyTransform (juce::AffineTransform::rotation (angle).translated (cx, cy));
-            g.setColour (juce::Colour (kPointer));
-            g.fillPath (p);
+            juce::Path value;
+            value.addCentredArc (cx, cy, ar, ar, 0.0f, rotaryStartAngle, angle, true);
+
+            g.setColour (juce::Colour (kAccentGlow).withAlpha (0.22f));
+            g.strokePath (value, juce::PathStrokeType (stroke * 2.2f,
+                                                       juce::PathStrokeType::curved,
+                                                       juce::PathStrokeType::rounded));
+
+            g.setColour (juce::Colour (kAccentArc));
+            g.strokePath (value, juce::PathStrokeType (stroke,
+                                                       juce::PathStrokeType::curved,
+                                                       juce::PathStrokeType::rounded));
         }
 
-        // 7. Centre dot highlight
+        // Pointer: a hand from the hub out to the rim. Stops short of the
+        // centre so the knob reads as a ring with an indicator, not a pie.
         {
-            const float dr = juce::jmax (2.0f, radius * 0.1f);
-            juce::ColourGradient d (juce::Colour (0xff4a4a6a), cx, cy - dr * 0.5f,
-                                    juce::Colour (kKnobBodyDark), cx, cy + dr, false);
-            g.setGradientFill (d);
-            g.fillEllipse (cx - dr, cy - dr, dr * 2.0f, dr * 2.0f);
+            const float sinA = std::sin (angle), cosA = std::cos (angle);
+            const float r0 = ar * 0.34f, r1 = ar - stroke * 0.85f;
+
+            g.setColour (juce::Colour (hasValue ? kTitleHi : kLabel));
+            g.drawLine (cx + sinA * r0, cy - cosA * r0,
+                        cx + sinA * r1, cy - cosA * r1,
+                        juce::jmax (1.5f, stroke * 0.5f));
         }
     }
 
@@ -303,71 +276,129 @@ public:
     }
 
     //--------------------------------------------------------------------------
-    // ComboBox
+    // ComboBox — bare word with a baseline rule and an ink chevron, no box
+    // (2026-08-22 revamp): the filled rounded pill was the one place left
+    // that still read as a generic form control instead of Sol's own face.
     //--------------------------------------------------------------------------
     void drawComboBox (juce::Graphics& g, int width, int height,
                        bool /*isDown*/, int /*bx*/, int /*by*/, int /*bw*/, int /*bh*/,
                        juce::ComboBox& box) override
     {
-        const auto r = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height);
+        const bool hot = box.isMouseOver() || box.isMouseButtonDown();
+        const auto r = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height).reduced (0.5f);
 
-        g.setColour (box.findColour (juce::ComboBox::backgroundColourId));
+        // A quiet surface rather than a bare underline: on the dark plate a
+        // lone rule reads as a divider, not as something you can open.
+        g.setColour (juce::Colour (hot ? kPanelLight : kPanel));
         g.fillRoundedRectangle (r, 4.0f);
+        g.setColour (juce::Colour (hot ? kOutlineHi : kOutline));
+        g.drawRoundedRectangle (r, 4.0f, 1.0f);
 
-        g.setColour (box.findColour (juce::ComboBox::outlineColourId));
-        g.drawRoundedRectangle (r.reduced (0.5f), 4.0f, 1.0f);
-
-        // Cyan chevron arrow
-        const auto az = juce::Rectangle<int> (width - 30, 0, 20, height);
+        const auto az = juce::Rectangle<int> (width - 22, 0, 16, height);
         juce::Path arrow;
         arrow.startNewSubPath ((float) az.getCentreX() - 4, (float) az.getCentreY() - 2);
         arrow.lineTo          ((float) az.getCentreX(),     (float) az.getCentreY() + 2);
         arrow.lineTo          ((float) az.getCentreX() + 4, (float) az.getCentreY() - 2);
-        g.setColour (box.findColour (juce::ComboBox::arrowColourId)
-                       .withAlpha (box.isEnabled() ? 0.9f : 0.2f));
-        g.strokePath (arrow, juce::PathStrokeType (2.0f));
+        g.setColour (juce::Colour (hot ? kTitleHi : kLabel)
+                       .withAlpha (box.isEnabled() ? 1.0f : 0.35f));
+        g.strokePath (arrow, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved,
+                                                   juce::PathStrokeType::rounded));
     }
 
     //--------------------------------------------------------------------------
-    // Toggle button (Space Dust style: cyan glow when on, dark when off)
+    // Toggle button — MonoToggle's own rule, generalised (2026-08-22 revamp):
+    // off is a bare word (no box — an unset switch has nothing to announce),
+    // on is the same word knocked out white inside a solid ink block. One
+    // rule now covers Input Mono, Bypass, MIDI Follow and every effect's
+    // toggle-kind controls, instead of the ink block being MonoToggle's own
+    // one-off and everything else keeping a cyan-glow-shaped hole where the
+    // box outline still was.
     //--------------------------------------------------------------------------
     void drawToggleButton (juce::Graphics& g, juce::ToggleButton& button,
-                           bool /*highlighted*/, bool /*down*/) override
+                           bool highlighted, bool /*down*/) override
     {
-        const auto bounds = button.getLocalBounds().toFloat();
-        const float corner = 3.0f;
+        const bool on = button.getToggleState();
+
+        // No text (EffectDetailPage's per-effect toggles: a bare 24x24 tick
+        // box, no caption of its own — a Label sits beside it instead): a
+        // word-block has nothing to draw, so this is its own small control —
+        // a square that is either just an outline or filled ink, same
+        // "nothing draws what isn't there" spirit as everywhere else.
+        if (button.getButtonText().isEmpty())
+        {
+            const auto box = button.getLocalBounds().toFloat().reduced (2.0f);
+            const float a  = button.isEnabled() ? 1.0f : 0.4f;
+
+            if (on)
+            {
+                g.setColour (juce::Colour (kAccentGlow).withAlpha (0.20f * a));
+                g.fillRoundedRectangle (box.expanded (2.5f), 4.0f);
+                g.setColour (juce::Colour (kAccentArc).withAlpha (a));
+                g.fillRoundedRectangle (box, 2.5f);
+            }
+            else
+            {
+                g.setColour (juce::Colour (kPanel).withAlpha (a));
+                g.fillRoundedRectangle (box, 2.5f);
+                g.setColour (juce::Colour (highlighted ? kOutlineHi : kOutline).withAlpha (a));
+                g.drawRoundedRectangle (box.reduced (0.5f), 2.5f, 1.2f);
+            }
+            return;
+        }
+
+        juce::GlyphArrangement glyphs;
+        glyphs.addFittedText (getBodyFont (13.0f), button.getButtonText(),
+                              0.0f, 0.0f, (float) button.getWidth(), (float) button.getHeight(),
+                              juce::Justification::centred, 1);
+        const auto textBox = glyphs.getBoundingBox (0, -1, true).expanded (9.0f, 5.0f);
+
+        // On is an accent chip, not a white slab: at this size a full-bright
+        // fill on the dark plate glares, and the amber already means "engaged"
+        // everywhere else.
+        if (on)
+        {
+            g.setColour (juce::Colour (kAccentGlow).withAlpha (0.18f));
+            g.fillRoundedRectangle (textBox.expanded (3.0f), 5.0f);
+            g.setColour (juce::Colour (kAccentArc));
+            g.fillRoundedRectangle (textBox, 3.0f);
+        }
+        else if (highlighted)
+        {
+            g.setColour (juce::Colour (kPanelLight));
+            g.fillRoundedRectangle (textBox, 3.0f);
+        }
+
+        g.setColour (juce::Colour (on ? kBackground : kLabel)
+                       .withAlpha (button.isEnabled() ? 1.0f : 0.5f));
+        glyphs.draw (g);
+    }
+
+    //--------------------------------------------------------------------------
+    // TextButton background — same ink-block rule as the toggle, so the tab
+    // strip and the key-note picker read as the same family of control
+    // rather than their own grey-box convention (2026-08-22 revamp). A
+    // plain action button (never toggled on, e.g. "Remove voice") just
+    // never shows the block and reads as a bare word throughout.
+    //--------------------------------------------------------------------------
+    void drawButtonBackground (juce::Graphics& g, juce::Button& button,
+                               const juce::Colour&, bool highlighted, bool /*down*/) override
+    {
+        const auto bounds = button.getLocalBounds().toFloat().reduced (1.0f);
         const bool on = button.getToggleState();
 
         if (on)
         {
-            // Outer glow
-            g.setColour (juce::Colour (0x5500aaff));
-            g.fillRoundedRectangle (bounds.expanded (4.0f), corner + 2.0f);
-            // Inner glow
-            g.setColour (juce::Colour (0x4400d4ff));
-            g.fillRoundedRectangle (bounds.expanded (2.0f), corner + 1.0f);
-            // Body
-            g.setColour (juce::Colour (kAccentToggle));
-            g.fillRoundedRectangle (bounds, corner);
-            // Bright border
-            g.setColour (juce::Colour (kAccentGlow));
-            g.drawRoundedRectangle (bounds.reduced (0.5f), corner, 1.5f);
+            g.setColour (juce::Colour (kAccentGlow).withAlpha (0.18f));
+            g.fillRoundedRectangle (bounds.expanded (2.5f), 5.5f);
+            g.setColour (juce::Colour (kAccentArc));
+            g.fillRoundedRectangle (bounds, 3.0f);
         }
         else
         {
-            g.setColour (juce::Colour (kPanel));
-            g.fillRoundedRectangle (bounds, corner);
-            g.setColour (juce::Colour (kOutline));
-            g.drawRoundedRectangle (bounds.reduced (0.5f), corner, 1.0f);
+            g.setColour (juce::Colour (highlighted ? kPanelLight : kPanel));
+            g.fillRoundedRectangle (bounds, 3.0f);
+            g.setColour (juce::Colour (highlighted ? kOutlineHi : kOutline));
+            g.drawRoundedRectangle (bounds.reduced (0.5f), 3.0f, 1.0f);
         }
-
-        // Centred bold label with shadow
-        const auto textArea = bounds.reduced (4.0f).toNearestInt();
-        const auto textColour = juce::Colour (kLabel).withAlpha (on ? 1.0f : 0.8f);
-
-        g.setFont (getBodyFont (12.0f, true));
-        drawTextWithShadow (g, button.getButtonText(), textArea,
-                            juce::Justification::centred, textColour,
-                            on ? 0.3f : 0.2f, 1);
     }
 };

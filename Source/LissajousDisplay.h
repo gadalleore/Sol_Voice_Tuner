@@ -171,7 +171,7 @@ private:
     juce::Array<juce::Point<float>> points;
     juce::Array<juce::Array<juce::Point<float>>> history;
 
-    juce::Colour traceColour  { juce::Colours::black };
+    juce::Colour traceColour  { juce::Colour (SolLookAndFeel::kAccentCool) };
     float        traceAlpha     = 0.85f;
     float        traceThickness = 1.0f;
     bool         showFrame      = false;

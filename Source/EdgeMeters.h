@@ -164,10 +164,27 @@ private:
                 if (flat == nullptr)
                     paintTrail (g, col, top, trailFor (ch));
 
-                // Ink up to the clip line...
-                g.setColour (flat != nullptr ? *flat
-                                             : juce::Colour (SolLookAndFeel::kTitleHi));
-                g.fillRect (col.withTop (juce::jmax (top, clipY)));
+                // Body up to the clip line. Cool at the floor warming to the
+                // accent as it climbs, so level is readable from colour alone
+                // at a glance and not only from bar height (night panel,
+                // 2026-08-22). The gradient is anchored to the SCALE, not to
+                // the current top, or the hue would slide as the bar moved.
+                const auto body = col.withTop (juce::jmax (top, clipY));
+
+                if (flat != nullptr)
+                {
+                    g.setColour (*flat);
+                }
+                else
+                {
+                    juce::ColourGradient grad (juce::Colour (SolLookAndFeel::kAccentCool),
+                                               col.getCentreX(), col.getBottom(),
+                                               juce::Colour (SolLookAndFeel::kAccentArc),
+                                               col.getCentreX(), clipY, false);
+                    g.setGradientFill (grad);
+                }
+
+                g.fillRect (body);
 
                 // ...and red for the overshoot alone, if there is any.
                 if (top < clipY)
@@ -278,8 +295,9 @@ private:
     static constexpr float kTrailAlpha      = 0.75f;
     static constexpr float kTrailHeadHeight = 6.0f;   // px of bar top that smears
 
-    /** Warm, not signal-red: it has to sit on a white plate without shouting. */
-    static constexpr juce::uint32 kClipRed = 0xffd8261c;
+    /** Clip red, from the palette — on the dark plate it wants to be brighter
+        than the muted red the white plate needed (night panel, 2026-08-22). */
+    static constexpr juce::uint32 kClipRed = SolLookAndFeel::kClip;
 
     float level[2] { 0.0f, 0.0f };
     int   hold[2]  { 0, 0 };

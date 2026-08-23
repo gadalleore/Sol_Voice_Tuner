@@ -10,8 +10,9 @@ with the high-quality, header-only
 engine — featuring formant preservation, retune-speed smoothing,
 and a "Robot Mode" for hard T-Pain snapping.
 
-A **63C** product. (Formerly branded Shades; a sun-white frutiger-aero
-UI rebuild is in progress — see the Linear project for the roadmap.)
+A **63C** product. (Formerly branded Shades. The UI is a dark instrument
+panel — amber for value, cyan for live signal — rebuilt panel by panel;
+see `CLAUDE.md` under "The face".)
 
 Builds as **VST3** and a **Standalone** app (Windows). macOS AU support
 is wired in CMake but currently disabled.

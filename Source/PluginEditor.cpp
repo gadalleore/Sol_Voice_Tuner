@@ -19,15 +19,24 @@ PitchCorrectorAudioProcessorEditor::PitchCorrectorAudioProcessorEditor (
 
     // ── Panel-by-panel rebuild (2026-07-27) ──────────────────────────────
     // The base plate (63C-48) is the root view while the UI is rebuilt one
-    // panel at a time. The v3 paging UI below is intact and still compiled —
-    // it is simply not attached. To bring it back, restore this block and
-    // parent it to the shell instead of the plate:
-    //
-    //     homePage.onInputFx   = [this] { pageStack.push (inputFxPage); };
-    //     homePage.onHarmonies = [this] { pageStack.push (harmoniesPage); };
-    //     homePage.onOutputFx  = [this] { pageStack.push (outputFxPage); };
-    //     harmoniesPage.onOpenTuning = [this] { pageStack.push (tuningPage); };
-    //     pageStack.setRootPage (homePage);
+    // panel at a time, and the Home WHEEL — not HomePage — is what sits on it.
+    // So the drilled-in pages hang off the plate rather than off a stack that
+    // owns Home too: openPage() swaps the plate's content from the wheel to the
+    // stack, and back is the reverse (see onPopFromRoot below). Source/HomePage.h
+    // is the older full-page Home, kept for the parts not yet rebuilt as panels.
+    harmoniesPage.onOpenTuning = [this] { pageStack.push (tuningPage); };
+
+    // Back on the ROOT page means "leave the stack entirely". This fires from
+    // inside the back bar's mouse callback, which is why the plate is not
+    // re-parented until the message loop comes round again.
+    pageStack.onPopFromRoot = [safeThis = juce::Component::SafePointer<PitchCorrectorAudioProcessorEditor> (this)]
+    {
+        juce::MessageManager::callAsync ([safeThis]
+        {
+            if (safeThis != nullptr)
+                safeThis->showHome();
+        });
+    };
 
     // The chamfer is back: in our own layered window the cut corner genuinely
     // shows through, which it could not do inside the host's opaque rect.
@@ -35,11 +44,20 @@ PitchCorrectorAudioProcessorEditor::PitchCorrectorAudioProcessorEditor (
     basePlate.setChamfer     (kChamfer);
     basePlate.setStrokeWidth (kPlateStroke);   // a drawn edge, not a hairline
     basePlate.setPadding     (32.0f);
-    // Solid black (Giuseppe, 2026-07-31): the grey read as tentative next to the
-    // ring and the meters, which are both full-strength ink. The close X tracks
-    // this colour too, so it goes black with the border.
-    basePlate.setOutlineColour (juce::Colour (SolLookAndFeel::kTitleHi));
-    basePlate.setContentBleedsLeft (true);  // the wheel runs to the window edge
+    // The plate's silhouette against whatever is behind the layered window.
+    // Not full-strength ink on the night panel (2026-08-22): at kPlateStroke
+    // a near-white edge is the brightest thing on screen and frames the UI
+    // harder than anything inside it. A lifted grey states the shape and
+    // stops there. The close X tracks this colour too.
+    basePlate.setOutlineColour (juce::Colour (SolLookAndFeel::kOutlineHi));
+    // Content stays INSIDE the frame (2026-08-22). This used to bleed left so
+    // the half-wheel — whose centre sits on its own left edge — could run off
+    // the panel. What that actually produced was the orb ring and the rim
+    // labels crossing the plate's border, which reads as a rendering fault
+    // rather than a design: a bezel that things pass through is not a bezel.
+    // Every professional plugin frame is unbroken, so the wheel is inset with
+    // everything else and its geometry follows.
+    basePlate.setContentBleedsLeft (false);
     // No wordmark. The product carries no name on its face — the interface is
     // the identity (Giuseppe, 2026-07-28).
     basePlate.setPanelFill   (juce::Colour (SolLookAndFeel::kBackground));
@@ -64,48 +82,13 @@ PitchCorrectorAudioProcessorEditor::PitchCorrectorAudioProcessorEditor (
         repaint();
     };
 
-    // The Home wheel, lifted onto the plate. The wheel is a pure view — slot
-    // state comes back through these hooks — so re-hosting it is just a matter
-    // of supplying the model. Drill-in targets are stubbed until the panels
-    // they open exist.
-    wheel.setNumSlots (3);
-    wheel.setPillSize (400.0f, 54.0f);
-    wheel.setItemFontHeight (28.0f);
-    wheel.setRingScale (0.62f);       // tightened to match the smaller orb
-    wheel.setRingThickness (kPlateStroke);   // same line as the border
-    wheel.setOrbScale (0.86f);        // 30% up on 0.60, then 10% again
-    wheel.setOrbOffsetRatio (0.55f);  // scaled with the orb, so the framing the
-                                      // smaller orb had is preserved — without
-                                      // it the orb hangs off the left of the plate
-    wheel.emptyTypeId    = -1;      // every slot is always occupied
-    wheel.itemsDraggable = false;   // Home items are fixed drill-ins
+    // The root screen. Its three nav destinations are what the Home wheel's
+    // three items used to be.
+    mainPage.onInputFx   = [this] { openPage (inputFxPage);   };
+    mainPage.onHarmonies = [this] { openPage (harmoniesPage); };
+    mainPage.onOutputFx  = [this] { openPage (outputFxPage);  };
 
-    wheel.getSlotType  = [] (int slot) { return slot; };
-    wheel.nameProvider = [] (int typeId) -> juce::String
-    {
-        switch (typeId)
-        {
-            case 0:  return "Input Global Effects";
-            case 1:  return "Harmonies / Tuning";
-            case 2:  return "Output Global Effects";
-            default: return {};
-        }
-    };
-    wheel.onSlotClicked = [] (int) { /* panels land here as they are built */ };
-
-    // Black goniometer trace in the wheel's hub, fed from the processor's
-    // scope snapshot — the panel's first live element.
-    hubScope.setTraceColour (juce::Colour (SolLookAndFeel::kTitleHi));
-    hubScope.setTraceAlpha (0.85f);
-    hubScope.setTraceThickness (1.1f);
-    wheel.setHubContent (&hubScope);
-
-    basePlate.setContent (&wheel);
-
-    // The wheel's labels survive the analyser's bars, knocked out white where
-    // a bar crosses them. Registered here rather than in the plate because the
-    // wheel is the plate's content, handed in from outside.
-    basePlate.getSpectrum().addInkable (&wheel, &wheel);
+    basePlate.setContent (&mainPage);
 
     basePlate.getSpectrum().fillSamples = [this] (float* dest, int numSamples)
     {
@@ -133,12 +116,27 @@ PitchCorrectorAudioProcessorEditor::~PitchCorrectorAudioProcessorEditor()
     // Order matters: drop the content before the shell leaves the desktop, and
     // never leave a desktop window behind when the host closes the editor.
     basePlate.onClose = nullptr;
-    wheel.setHubContent (nullptr);
     shell.setContent (nullptr);
     shell.hideFromDesktop();
     shell.setLookAndFeel (nullptr);
 
     setLookAndFeel (nullptr);
+}
+
+void PitchCorrectorAudioProcessorEditor::openPage (juce::Component& page)
+{
+    // Each drill-in starts a fresh stack rooted at the page that was opened, so
+    // the back bar walks that page's own children (an effects wheel -> one
+    // effect's detail page) and then leaves for Home.
+    pageStack.clear();
+    pageStack.setRootPage (page);
+    basePlate.setContent (&pageStack);
+}
+
+void PitchCorrectorAudioProcessorEditor::showHome()
+{
+    basePlate.setContent (&mainPage);
+    pageStack.clear();
 }
 
 void PitchCorrectorAudioProcessorEditor::paint (juce::Graphics& g)
@@ -183,8 +181,9 @@ void PitchCorrectorAudioProcessorEditor::timerCallback()
     if (! shell.isOnDesktop())
         return;
 
-    hubScope.update (processorRef.getScopeBuffer(),
-                     processorRef.getScopeValidSamples());
+    // The root screen's pitch display rides this clock too, rather than
+    // owning a timer of its own — one clock for the whole UI.
+    mainPage.tick();
 
     // One reader only: getAndClearMeterPeak() consumes the accumulated peak,
     // so a second poller anywhere would halve what the meters see. The shake
@@ -227,12 +226,15 @@ void PitchCorrectorAudioProcessorEditor::driveShake (float peak)
                         juce::roundToInt (std::sin (angle) * amp) };
     }
 
+    juce::ignoreUnused (previous);
+
     shell.setShakeOffset (shakeOffset);
 
-    // The plate has just been thrown from `previous` to `shakeOffset`, so the
-    // smear trails back the other way — same sign convention the wheel's own
-    // motion trails use.
-    wheel.setShakeMotion ((previous - shakeOffset).toFloat());
+    // The plate is still thrown by the audio, but nothing on the root screen
+    // subscribes to the throw vector any more: the Home wheel's labels were
+    // what smeared, and the wheel is no longer the root (2026-08-22). The FX
+    // wheels still smear on their own pages, from their own motion. If a
+    // future root element wants the throw, hand it (previous - shakeOffset).
 }
 
 void PitchCorrectorAudioProcessorEditor::placeShellNearStub()

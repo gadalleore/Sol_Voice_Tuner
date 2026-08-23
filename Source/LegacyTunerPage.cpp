@@ -12,12 +12,25 @@ namespace
 {
     void styleKeyNoteButton (juce::TextButton& tb, bool selected)
     {
-        tb.setColour (juce::TextButton::buttonColourId,
-                      juce::Colour (selected ? SolLookAndFeel::kAccentToggle
-                                               : SolLookAndFeel::kPanel));
-        tb.setColour (juce::TextButton::buttonOnColourId, juce::Colour (SolLookAndFeel::kPanelLight));
-        tb.setColour (juce::TextButton::textColourOffId,  juce::Colour (SolLookAndFeel::kLabel));
-        tb.setColour (juce::TextButton::textColourOnId,   juce::Colour (SolLookAndFeel::kTitleHi));
+        // Real toggle state, not just a colour swap: SolLookAndFeel's
+        // drawButtonBackground/drawButtonText both key off getToggleState()
+        // now (2026-08-22 revamp), so the button has to actually carry it.
+        tb.setToggleState (selected, juce::dontSendNotification);
+        tb.setColour (juce::TextButton::textColourOffId, juce::Colour (SolLookAndFeel::kLabel));
+        tb.setColour (juce::TextButton::textColourOnId,  juce::Colour (SolLookAndFeel::kBackground));
+    }
+
+    /** No box behind a knob's value (2026-08-22 revamp), matching
+        EffectDetailPage::styleKnob. Set on the instance rather than left to
+        SolLookAndFeel's own default: these knobs are built as page members,
+        constructed before the editor calls setLookAndFeel on the tree, and
+        Slider only re-reads its text box's colours when setColour fires on
+        the slider itself (Slider::colourChanged -> lookAndFeelChanged) — the
+        LookAndFeel-level default alone never reaches a box already cached. */
+    void clearKnobTextBoxChrome (juce::Slider& s)
+    {
+        s.setColour (juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
+        s.setColour (juce::Slider::textBoxOutlineColourId,    juce::Colours::transparentBlack);
     }
 
     /** Below this YIN confidence, treat input as "no sound" for the readout. */
@@ -79,6 +92,7 @@ LegacyTunerPage::LegacyTunerPage (PitchCorrectorAudioProcessor& p)
     };
     roboticKnob.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
     roboticKnob.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 88, 22);
+    clearKnobTextBoxChrome (roboticKnob);
     addAndMakeVisible (roboticKnob);
     roboticLbl.setText ("Robotic", juce::dontSendNotification);
     roboticLbl.setJustificationType (juce::Justification::centred);
@@ -101,6 +115,7 @@ LegacyTunerPage::LegacyTunerPage (PitchCorrectorAudioProcessor& p)
     };
     subKnob.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
     subKnob.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 88, 22);
+    clearKnobTextBoxChrome (subKnob);
     addAndMakeVisible (subKnob);
     subLbl.setText ("Sub", juce::dontSendNotification);
     subLbl.setJustificationType (juce::Justification::centred);
@@ -114,6 +129,7 @@ LegacyTunerPage::LegacyTunerPage (PitchCorrectorAudioProcessor& p)
     formantKnob.setTextValueSuffix (" st");
     formantKnob.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
     formantKnob.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 88, 22);
+    clearKnobTextBoxChrome (formantKnob);
     addAndMakeVisible (formantKnob);
     formantLbl.setText ("Formant", juce::dontSendNotification);
     formantLbl.setJustificationType (juce::Justification::centred);
@@ -127,10 +143,8 @@ LegacyTunerPage::LegacyTunerPage (PitchCorrectorAudioProcessor& p)
     auto setupTabBtn = [this] (juce::TextButton& b, int index)
     {
         b.setClickingTogglesState (false);
-        b.setColour (juce::TextButton::buttonColourId,   juce::Colour (SolLookAndFeel::kPanel));
-        b.setColour (juce::TextButton::buttonOnColourId, juce::Colour (SolLookAndFeel::kAccentToggle));
-        b.setColour (juce::TextButton::textColourOffId,  juce::Colour (SolLookAndFeel::kLabelAlt));
-        b.setColour (juce::TextButton::textColourOnId,   juce::Colour (SolLookAndFeel::kTitleHi));
+        b.setColour (juce::TextButton::textColourOffId, juce::Colour (SolLookAndFeel::kLabelAlt));
+        b.setColour (juce::TextButton::textColourOnId,  juce::Colour (SolLookAndFeel::kBackground));
         b.onClick = [this, index] { setCentreTab (index); };
         addAndMakeVisible (b);
     };
@@ -146,6 +160,7 @@ LegacyTunerPage::LegacyTunerPage (PitchCorrectorAudioProcessor& p)
     bendRangeKnob.setTextValueSuffix (" st");
     bendRangeKnob.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
     bendRangeKnob.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 18);
+    clearKnobTextBoxChrome (bendRangeKnob);
     bendRangeKnob.setName (SolLookAndFeel::bendRangeSliderName);
     addAndMakeVisible (bendRangeKnob);
     bendRangeLbl.setText ("Bend range", juce::dontSendNotification);
@@ -346,11 +361,27 @@ void LegacyTunerPage::resized()
 
     auto row = bottom;
     constexpr int bottomStripGap = 12;
-    // Compact fixed widths + gaps so Scale / Key / MIDI Follow read as separate controls
+    // Compact widths + gaps so Scale / Key / MIDI Follow read as separate controls
     // (scale combo still fits longest scale name at typical editor widths).
-    constexpr int scaleComboW = 200;
-    constexpr int keyAreaW    = 236;
-    constexpr int midiFollowW = 116;
+    //
+    // Shrunk together when the row cannot hold them all. These used to be hard
+    // constants summing to more than the page gets once the plate's right-hand
+    // column is reserved (TuningWindowPage::kRightColumn), and because the
+    // blocks are taken off the left with removeFromLeft, the overflow all
+    // landed on the LAST control — the bend-range knob simply stopped being
+    // laid out. Scaling keeps every control on the page instead of silently
+    // dropping the one at the end.
+    constexpr int wantScale = 200, wantKey = 236, wantMidi = 116, wantBend = 72;
+    constexpr int wantTotal = wantScale + wantKey + wantMidi + wantBend
+                            + bottomStripGap * 3 + 6;
+
+    const float fit = juce::jlimit (0.55f, 1.0f,
+                                    (float) row.getWidth() / (float) wantTotal);
+
+    const int scaleComboW = juce::roundToInt (wantScale * fit);
+    const int keyAreaW    = juce::roundToInt (wantKey   * fit);
+    const int midiFollowW = juce::roundToInt (wantMidi  * fit);
+    const int bendRangeW  = juce::roundToInt (wantBend  * fit);
 
     auto scaleBlock = row.removeFromLeft (scaleComboW);
     scaleLbl.setBounds (scaleBlock.removeFromTop (18));
@@ -383,7 +414,9 @@ void LegacyTunerPage::resized()
 
     row.removeFromRight (6);
     // Bend range knob (pitch bend + volume moved to the MeterSidebar, 63C-18).
-    auto bendRangeCol = row.removeFromRight (juce::jmax (72, juce::jmin (row.getWidth() / 3, 100)))
+    // Width comes from the same `fit` as everything else on the row, so it
+    // shrinks with its neighbours rather than being the one that vanishes.
+    auto bendRangeCol = row.removeFromRight (juce::jmin (row.getWidth(), bendRangeW))
                            .reduced (2, 2);
     bendRangeLbl.setBounds (bendRangeCol.removeFromTop (18));
     bendRangeKnob.setBounds (bendRangeCol);
@@ -393,34 +426,12 @@ void LegacyTunerPage::resized()
 
 void LegacyTunerPage::paint (juce::Graphics& g)
 {
+    // Bare plate — no title pane (SolPage.h, Giuseppe 2026-08-16): no filled
+    // header, no divider rule, no panel behind the readouts. This page used
+    // to paint its own pre-rebrand navy header/panel chrome underneath the
+    // SolPage furniture around it; gone, so it reads as the same white
+    // surface as every other page.
     g.fillAll (juce::Colour (SolLookAndFeel::kBackground));
-
-    const auto full = getLocalBounds().toFloat();
-    juce::ColourGradient grad (juce::Colour (0xff12122a), full.getCentreX(), 0.0f,
-                               juce::Colour (SolLookAndFeel::kBackground),
-                               full.getCentreX(), full.getHeight(), false);
-    g.setGradientFill (grad);
-    g.fillRect (full);
-
-    juce::Rectangle<float> headerBar (0.0f, 0.0f, full.getWidth(), 50.0f);
-    g.setColour (juce::Colour (SolLookAndFeel::kPanel).withAlpha (0.55f));
-    g.fillRect (headerBar);
-    g.setColour (juce::Colour (SolLookAndFeel::kAccentGlow).withAlpha (0.35f));
-    g.fillRect (headerBar.removeFromBottom (1.5f));
-
-    auto drawPitchPanel = [&] (juce::Rectangle<int> rect, bool isOut)
-    {
-        auto rf = rect.toFloat().reduced (1.0f);
-        g.setColour (juce::Colour (SolLookAndFeel::kPanel));
-        g.fillRoundedRectangle (rf, 10.0f);
-
-        juce::Colour edge = juce::Colour (SolLookAndFeel::kAccentGlow).withAlpha (isOut ? 0.45f : 0.28f);
-        g.setColour (edge);
-        g.drawRoundedRectangle (rf.reduced (0.5f), 10.0f, 1.5f);
-    };
-
-    drawPitchPanel (pitchInPanelBounds, false);
-    drawPitchPanel (pitchOutPanelBounds, true);
 }
 
 void LegacyTunerPage::timerCallback()

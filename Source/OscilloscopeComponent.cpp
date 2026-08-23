@@ -54,10 +54,7 @@ void OscilloscopeComponent::paint (juce::Graphics& g)
             else        path.lineTo (x, y);
         }
 
-        // Soft glow underneath, sharp trace on top
-        g.setColour (traceGlow.withAlpha (0.35f));
-        g.strokePath (path, juce::PathStrokeType (4.5f, juce::PathStrokeType::curved,
-                                                  juce::PathStrokeType::rounded));
+        // One crisp ink line — no colour, no glow (sun-white, Giuseppe 2026-07-28).
         g.setColour (traceColour);
         g.strokePath (path, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved,
                                                   juce::PathStrokeType::rounded));

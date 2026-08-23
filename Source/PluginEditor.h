@@ -21,6 +21,7 @@
 #include "LissajousDisplay.h"
 #include "PageStack.h"
 #include "HomePage.h"
+#include "MainPage.h"
 #include "EffectsWindowPage.h"
 #include "HarmoniesWindowPage.h"
 #include "TuningWindowPage.h"
@@ -181,8 +182,15 @@ private:
             side of the plate. VolumeArc::kArcLabelGap is the same figure. */
         static constexpr int kStackGap = kColumnGap / 2;
 
-        /** How far up the plate the analyser reaches. */
-        static constexpr int kSpectrumHeight = 150;
+        /** How far up the plate the analyser reaches.
+
+            A footer band, not a wash. At 150 it covered the bottom third of
+            the plate, which worked when the pages were sparse — the wheel put
+            almost nothing down there — but the main page is a dense control
+            surface and every knob in that third would have had bars painted
+            over it (or needed its own `Inkable` stencil). Slimmed to a strip
+            the layout can simply sit above (2026-08-22). */
+        static constexpr int kSpectrumHeight = 44;
 
         EdgeMeters    meters;
         VolumeArc     volume;
@@ -230,6 +238,13 @@ private:
 
     void driveShake (float peak);
 
+    /** Drill in from the Home wheel: the plate's content becomes the page
+        stack, rooted at `page`. */
+    void openPage (juce::Component& page);
+
+    /** Back out of the stack entirely — the plate shows the Home wheel again. */
+    void showHome();
+
     /** Only used when the shell first appears or is re-shown — never while the
         host moves its plugin window. */
     void placeShellNearStub();
@@ -243,11 +258,13 @@ private:
     float            shakeLevel = 0.0f;
     juce::Point<int> shakeOffset;
 
-    // The real window, the plate that fills it, and the wheel on the plate.
+    // The real window, the plate that fills it, and the root screen on the
+    // plate. The Home WHEEL was the root until 2026-08-22; `MainPage` replaced
+    // it (see that file's header for why). WheelComponent is still very much
+    // alive — it is what both effects chains are built on.
     FloatingShell  shell;
-    MeteredPlate     basePlate { processorRef.getAPVTS() };
-    WheelComponent   wheel;
-    LissajousDisplay hubScope;
+    MeteredPlate   basePlate { processorRef.getAPVTS() };
+    MainPage       mainPage  { processorRef };
 
     // Declared before the pages: pages remove themselves from the stack's
     // child list on destruction, so the stack must outlive them.

@@ -1,14 +1,20 @@
 /*
     SolPage.h
     ---------
-    Base page for the Xbox-style paging UI (63C-6): title header plus
-    INPUT / OUTPUT edge captions — signal enters at the top of every page and
-    leaves at the bottom, matching the Home wheel orientation.
+    Base page for the Xbox-style paging UI (63C-6): title plus INPUT / OUTPUT
+    edge captions — signal enters at the top of every page and leaves at the
+    bottom, matching the Home wheel orientation.
 
-    63C-17: back is a slim full-height VERTICAL BAR on the left edge of the
-    window (per Giuseppe's review) — the wheel's flat edge starts just to its
-    right. Every drilled-in page gets the bar automatically; Home is not a
-    SolPage, so the root shows nothing.
+    The face is the Home page's face (Giuseppe, 2026-08-16). There is no title
+    PANE: no filled header, no divider rule, no panel behind anything. Black ink
+    on the white plate, brand typeface, exactly like the wheel's own items — a
+    drilled-in page should read as the same object as the page it came from, not
+    as a dialog that opened on top of it.
+
+    Back is a word, not a bar. The full-height strip it replaced (63C-17) sat
+    hard against x = 0, and the plate lets its content bleed to the window edge,
+    so the strip ran underneath the border and off the glass. The word sits
+    inside the same left inset everything else respects.
 
     Subclasses lay out their controls in layoutContent().
 */
@@ -28,14 +34,17 @@ public:
     {
         setOpaque (true);   // 63C-17: pages fully cover whatever is beneath
 
+        // Same ink, same typeface and the same weight of presence as a Home
+        // wheel item — the title is a word on the plate, not a header.
         title.setText (titleText, juce::dontSendNotification);
-        title.setJustificationType (juce::Justification::centred);
-        title.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 18.0f, juce::Font::plain)));
+        title.setJustificationType (juce::Justification::centredLeft);
+        title.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface,
+                                                      kTitleHeight, juce::Font::plain)));
         title.setColour (juce::Label::textColourId, juce::Colour (SolLookAndFeel::kTitleHi));
         addAndMakeVisible (title);
 
-        backBar.onClick = [this] { stack.pop(); };
-        addAndMakeVisible (backBar);
+        back.onClick = [this] { stack.pop(); };
+        addAndMakeVisible (back);
 
         styleEdgeCaption (inCaption,  "INPUT");
         styleEdgeCaption (outCaption, "OUTPUT");
@@ -43,33 +52,36 @@ public:
 
     void resized() final
     {
-        auto r = getLocalBounds();
+        auto r = getLocalBounds().reduced (kEdgeInset, 0);
 
-        // Slim full-height back bar hugging the window's left edge; the
-        // wheel's flat edge starts to its right.
-        backBar.setBounds (r.removeFromLeft (kBackBarWidth));
-
-        auto header = r.removeFromTop (44);
+        auto header = r.removeFromTop (kHeaderHeight);
+        back .setBounds (header.removeFromLeft (kBackWidth)
+                               .withSizeKeepingCentre (kBackWidth, kBackHeight));
+        header.removeFromLeft (kEdgeInset);
         title.setBounds (header);
 
         inCaption .setBounds (r.removeFromTop (16));
         outCaption.setBounds (r.removeFromBottom (16));
 
-        layoutContent (r.reduced (14, 6));
+        layoutContent (r.reduced (0, 6));
     }
 
     void paint (juce::Graphics& g) override
     {
+        // Bare plate. No header fill, no rule under the title — the page is the
+        // same white surface the Home wheel sits on.
         g.fillAll (juce::Colour (SolLookAndFeel::kBackground));
-
-        g.setColour (juce::Colour (SolLookAndFeel::kPanel).withAlpha (0.55f));
-        g.fillRect (getLocalBounds().removeFromTop (44).withTrimmedLeft (kBackBarWidth));
-        g.setColour (juce::Colour (SolLookAndFeel::kAccentGlow).withAlpha (0.35f));
-        g.fillRect (kBackBarWidth, 43, getWidth() - kBackBarWidth, 1);
     }
 
 protected:
-    static constexpr int kBackBarWidth = 34;
+    /** Left/right breathing room. The plate lets content bleed to the window
+        edge, so a page has to keep itself off the border. */
+    static constexpr int kEdgeInset   = 18;
+    static constexpr int kHeaderHeight = 40;
+    static constexpr int kBackWidth   = 62;
+    static constexpr int kBackHeight  = 26;
+
+    static constexpr float kTitleHeight = 22.0f;
 
     /** Subclasses place their controls inside the given content area. */
     virtual void layoutContent (juce::Rectangle<int> area) = 0;
@@ -81,48 +93,34 @@ protected:
 
 private:
     //==========================================================================
-    /** 63C-17: the vertical back bar — a slim strip down the window's left
-        edge with a chevron and stacked B-A-C-K letters; highlights on hover,
-        whole strip is the click target. */
-    class BackBar final : public juce::Component
+    /** Back, as a word on the plate: a chevron and "BACK" in the brand face,
+        no panel and no border behind it. Greys on hover, the same way the
+        wheel's items do. */
+    class BackWord final : public juce::Component
     {
     public:
         std::function<void()> onClick;
 
-        BackBar() { setMouseCursor (juce::MouseCursor::PointingHandCursor); }
+        BackWord() { setMouseCursor (juce::MouseCursor::PointingHandCursor); }
 
         void paint (juce::Graphics& g) override
         {
             const bool hot = isMouseOverOrDragging();
 
-            g.fillAll (juce::Colour (SolLookAndFeel::kPanel)
-                           .withAlpha (hot ? 0.95f : 0.6f));
-            g.setColour (juce::Colour (hot ? SolLookAndFeel::kOutlineHi
-                                           : SolLookAndFeel::kAccentGlow)
-                             .withAlpha (hot ? 0.9f : 0.45f));
-            g.fillRect (getWidth() - 1, 0, 1, getHeight());
+            g.setColour (juce::Colour (hot ? kHoverInk : SolLookAndFeel::kTitleHi));
 
-            g.setColour (juce::Colour (hot ? SolLookAndFeel::kTitleHi
-                                           : SolLookAndFeel::kLabel));
-
-            // Chevron above vertically stacked letters, optically centred.
-            const float cx = (float) getWidth() * 0.5f;
             const float cy = (float) getHeight() * 0.5f;
 
             juce::Path chevron;
-            chevron.startNewSubPath (cx + 4.0f, cy - 46.0f);
-            chevron.lineTo          (cx - 4.0f, cy - 38.0f);
-            chevron.lineTo          (cx + 4.0f, cy - 30.0f);
-            g.strokePath (chevron, juce::PathStrokeType (2.2f,
+            chevron.startNewSubPath (9.0f, cy - 5.0f);
+            chevron.lineTo          (3.0f, cy);
+            chevron.lineTo          (9.0f, cy + 5.0f);
+            g.strokePath (chevron, juce::PathStrokeType (1.8f,
                           juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-            g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 12.0f, juce::Font::plain)));
-            const juce::String letters ("BACK");
-            for (int i = 0; i < letters.length(); ++i)
-                g.drawText (letters.substring (i, i + 1),
-                            juce::Rectangle<float> (0.0f, cy - 18.0f + (float) i * 15.0f,
-                                                    (float) getWidth(), 15.0f),
-                            juce::Justification::centred);
+            g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 13.0f, juce::Font::plain)));
+            g.drawText ("BACK", getLocalBounds().withTrimmedLeft (15),
+                        juce::Justification::centredLeft);
         }
 
         void mouseEnter (const juce::MouseEvent&) override { repaint(); }
@@ -134,7 +132,12 @@ private:
                 onClick();
         }
 
-        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BackBar)
+    private:
+        /** Same accent the wheel uses for a hovered item — hover lights up on
+            the night panel rather than greying out (2026-08-22). */
+        static constexpr juce::uint32 kHoverInk = SolLookAndFeel::kAccentArc;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BackWord)
     };
 
     void styleEdgeCaption (juce::Label& l, const juce::String& text)
@@ -148,7 +151,7 @@ private:
     }
 
     juce::Label title;
-    BackBar     backBar;
+    BackWord    back;
     juce::Label inCaption, outCaption;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SolPage)

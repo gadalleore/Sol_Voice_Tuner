@@ -232,6 +232,14 @@ public:
             // A single flat stroke, no gradient and no dither on it. Fading a
             // structural line out along its length is a decorative move; sharp
             // and minimal wants the geometry stated once, cleanly.
+            //
+            // Only when there is an orb to ring. The Home wheel has hub content
+            // (the Lissajous) the ring frames; the Effects/Harmonies wheels have
+            // a palette there instead, positioned right up against the axis —
+            // an unconditional ring drawn behind it just cuts through the
+            // palette's words. "Nothing draws what isn't there" applies to the
+            // wheel's own furniture too.
+            if (hubContent != nullptr)
             {
                 // Concentric with the ORB, not the wheel axis. Anchored to the
                 // axis it could only ever pass beside the offset orb; ringing
@@ -332,8 +340,26 @@ public:
             auto header = paletteClip;
             g.setColour (juce::Colour (SolLookAndFeel::kLabelAlt).withAlpha (0.5f));
             g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 10.5f, juce::Font::plain)));
-            g.drawText ("PULL OUT", header.removeFromTop (16.0f),
+            g.drawText ("PULL OUT", header.removeFromTop (kPaletteHeaderH),
                         juce::Justification::centred);
+
+            // Say so when the list runs past the box, at both ends.
+            if (const float maxScroll = maxPaletteScroll(); maxScroll > 0.001f)
+            {
+                const juce::Rectangle<float> gutter (paletteClip.getRight() - 16.0f,
+                                                     paletteClip.getY(),
+                                                     14.0f, paletteClip.getHeight());
+
+                g.setColour (juce::Colour (SolLookAndFeel::kLabelAlt).withAlpha (0.45f));
+
+                if (paletteScroll > 0.001f)
+                    g.drawText ("^", gutter.withHeight (kPaletteHeaderH),
+                                juce::Justification::centred);
+
+                if (paletteScroll < maxScroll - 0.001f)
+                    g.drawText ("v", gutter.withTop (gutter.getBottom() - kPaletteHeaderH),
+                                juce::Justification::centred);
+            }
 
             for (size_t i = 0; i < palette.size(); ++i)
             {
@@ -343,18 +369,17 @@ public:
 
                 const bool isDragged = dragSource == DragSource::palette
                                     && dragPaletteIndex == (int) i;
+                const bool hovered   = ! dragging() && (int) i == hoveredPalette;
 
-                g.setColour (juce::Colour (SolLookAndFeel::kPanel)
-                                 .withAlpha (isDragged ? 0.4f : 1.0f));
-                g.fillRoundedRectangle (pill, pill.getHeight() * 0.5f);
-                g.setColour (juce::Colour (SolLookAndFeel::kOutline));
-                g.drawRoundedRectangle (pill, pill.getHeight() * 0.5f, 1.0f);
-
-                g.setColour (juce::Colour (SolLookAndFeel::kLabel)
-                                 .withAlpha (isDragged ? 0.5f : 1.0f));
-                g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 12.5f, juce::Font::plain)));
+                // The word IS the item — no pill, no oval, same as the items out
+                // on the rim (Giuseppe: no ugly circles around them). Hover and
+                // drag read through colour alone.
+                g.setColour (juce::Colour (hovered ? kHoverText : SolLookAndFeel::kTitleHi)
+                                 .withAlpha (isDragged ? 0.35f : 1.0f));
+                g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface,
+                                                          paletteFontHeight(), juce::Font::plain)));
                 g.drawText (palette[i].name, pill.reduced (6.0f, 0.0f),
-                            juce::Justification::centred);
+                            juce::Justification::centredLeft);
             }
 
             g.restoreState();
@@ -382,8 +407,9 @@ public:
 
     void mouseExit (const juce::MouseEvent&) override
     {
-        hoveredSlot   = -1;
-        edgeScrollDir = 0.0f;
+        hoveredSlot    = -1;
+        hoveredPalette = -1;
+        edgeScrollDir  = 0.0f;
         targetPhase   = 0.0f;
         startTimerHz (animFps);
     }
@@ -477,8 +503,7 @@ public:
         // Over the palette: scroll the palette list.
         if (! palette.empty() && paletteClip.contains (e.position))
         {
-            const float span = (float) palette.size() * paletteRowH - paletteClip.getHeight();
-            paletteScroll = juce::jlimit (0.0f, juce::jmax (0.0f, span),
+            paletteScroll = juce::jlimit (0.0f, maxPaletteScroll(),
                                           paletteScroll - wheel.deltaY * 48.0f);
             repaint();
             return;
@@ -503,7 +528,8 @@ private:
     // target; 63C-12 replaces this easing with the weighty spring treatment.
     void updateHover (juce::Point<float> pos)
     {
-        hoveredSlot = hitSlot (pos);
+        hoveredSlot    = hitSlot (pos);
+        hoveredPalette = hitPalette (pos);
 
         const float halfH = juce::jmax (1.0f, (float) getHeight() * 0.5f);
         const float norm  = juce::jlimit (-1.0f, 1.0f, (pos.y - centre.y) / halfH);
@@ -631,8 +657,25 @@ private:
 
         const float hubR = hubRadius();
         const float palW = juce::jlimit (72.0f, 150.0f, hubR - 14.0f);
-        const float palH = juce::jmin (hubR * 1.6f, b.getHeight() * 0.62f);
+
+        // Tall enough for the whole list where the panel allows it (63C-8 took
+        // the effects palette from two entries to twelve, and a list you have
+        // to scroll to discover is a list you do not know is there). Falls back
+        // to the hub-sized box when there is nothing much to show.
+        const float wanted = (float) palette.size() * kPaletteMaxRowH + kPaletteHeaderH;
+        const float palH   = juce::jlimit (juce::jmin (hubR * 1.6f, b.getHeight() * 0.62f),
+                                           b.getHeight() * 0.96f,
+                                           wanted);
+
         paletteClip = { centre.x + 8.0f, centre.y - palH * 0.5f, palW, palH };
+
+        // Squeeze the rows to fit before falling back to scrolling.
+        paletteRowH = kPaletteMaxRowH;
+        if (! palette.empty())
+            paletteRowH = juce::jlimit (kPaletteMinRowH, kPaletteMaxRowH,
+                                        (palH - kPaletteHeaderH) / (float) palette.size());
+
+        paletteScroll = juce::jlimit (0.0f, maxPaletteScroll(), paletteScroll);
 
         clampRimScroll();
     }
@@ -816,10 +859,24 @@ private:
 
     juce::Rectangle<float> paletteRect (int index) const
     {
-        const float top = paletteClip.getY() + 20.0f
+        const float top = paletteClip.getY() + kPaletteHeaderH
                         + (float) index * paletteRowH - paletteScroll;
         return { paletteClip.getX() + 4.0f, top,
-                 paletteClip.getWidth() - 8.0f, pillH };
+                 paletteClip.getWidth() - 8.0f,
+                 juce::jmin (pillH, paletteRowH - 4.0f) };
+    }
+
+    /** Palette words scale with their row so they stay inside it. */
+    float paletteFontHeight() const noexcept
+    {
+        return juce::jlimit (10.0f, 14.0f, paletteRowH * 0.58f);
+    }
+
+    /** How far the palette can scroll — 0 when the whole list already fits. */
+    float maxPaletteScroll() const noexcept
+    {
+        return juce::jmax (0.0f, (float) palette.size() * paletteRowH
+                                     - (paletteClip.getHeight() - kPaletteHeaderH));
     }
 
     int hitSlot (juce::Point<float> p) const
@@ -845,7 +902,12 @@ private:
     static constexpr int   animFps       = 60;
     static constexpr float maxHoverPhase = 0.22f;   // radians of hover glide
     static constexpr float slotRingR     = 13.0f;
-    static constexpr float paletteRowH   = 36.0f;
+
+    // Palette rows shrink from the comfortable size toward the tight one to fit
+    // the list in; below that it scrolls. The header is the "PULL OUT" caption.
+    static constexpr float kPaletteMaxRowH  = 36.0f;
+    static constexpr float kPaletteMinRowH  = 17.0f;
+    static constexpr float kPaletteHeaderH  = 20.0f;
 
     // Visible semicircle (right half of the circle, top -> bottom).
     static constexpr float arcStart  = 0.30f;                                    // ~17 deg
@@ -859,12 +921,20 @@ private:
     /** How much a hovered item's label grows. */
     static constexpr float kHoverFontScale = 1.02f;
 
-    /** Hovered labels go grey rather than picking up the accent colour. */
-    static constexpr juce::uint32 kHoverText = 0xff868682;  // grey on hover
+    /** Hovered labels light UP in the accent. On the white plate hover went
+        grey — darker ink on bright paper reads as "picked out". Inverted onto
+        the night panel that same move DIMS the word, which reads as disabled;
+        on a dark ground the way to pick something out is to make it glow
+        (2026-08-22). */
+    static constexpr juce::uint32 kHoverText = SolLookAndFeel::kAccentArc;
 
     // The orb's ring. The orb itself is unpainted, so this line is the whole
-    // of it — hence solid black rather than the old near-black hairline.
-    static constexpr juce::uint32 kRingLight  = 0xff0d0d0c;  // black ink
+    // of it. On the white plate it was full-strength ink; on the night panel
+    // (2026-08-22) that inverts to a near-white circle at kPlateStroke, which
+    // becomes the brightest object on screen — a lot of shout for a frame
+    // around the goniometer. Dropped to the hairline role so the trace inside
+    // it is what draws the eye.
+    static constexpr juce::uint32 kRingLight  = SolLookAndFeel::kOutline;
 
     /** How far the ring sits outside the orb, as a multiple of its radius. */
     static constexpr float kRingOrbGap        = 1.30f;
@@ -902,11 +972,13 @@ private:
     juce::Point<float> centre;
     float radius = 0.0f;
     juce::Rectangle<float> paletteClip;
+    float paletteRowH   = kPaletteMaxRowH;   // squeezed in computeGeometry()
     float paletteScroll = 0.0f;
     float rimScroll     = 0.0f;
     float targetPhase   = 0.0f;
-    float edgeScrollDir = 0.0f;
-    int   hoveredSlot   = -1;
+    float edgeScrollDir  = 0.0f;
+    int   hoveredSlot    = -1;
+    int   hoveredPalette = -1;
 
     DragSource dragSource = DragSource::none;
     int dragPaletteIndex = -1, dragFromSlot = -1, dragTypeId = 0;

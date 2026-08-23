@@ -3,15 +3,14 @@
     ------------
     A toggle that is nothing but its own name (Giuseppe, 2026-07-31).
 
-        off   the words in black, on bare plate. No box, no check, no lamp —
+        off   the words alone on the bare plate. No box, no check, no lamp —
               at rest it reads as a label, because an unset switch has nothing
               to announce;
-        on    the same words knocked out white inside a black box, so the state
+        on    the same words knocked out of a solid accent chip, so the state
               is legible across the room and unmistakably deliberate.
 
-    Times New Roman rather than the brand face: this is the one piece of the
-    interface that behaves like set type instead of like an instrument, and the
-    serif is what makes it read that way.
+    The chip was a black box on white until the night-panel pass (2026-08-22);
+    it is now the same amber every other engaged control wears.
 
     The box is drawn around the laid-out glyphs, not around the component, so
     it hugs whatever word the button is given.
@@ -69,20 +68,26 @@ public:
                               area.getWidth(), area.getHeight(),
                               juce::Justification::centred, 1);
 
+        const auto box = glyphs.getBoundingBox (0, -1, true).expanded (kPadX, kPadY);
+
         if (on)
         {
-            g.setColour (juce::Colour (SolLookAndFeel::kTitleHi));
-            g.fillRect (glyphs.getBoundingBox (0, -1, true).expanded (kPadX, kPadY));
+            // Accent chip, matching every other engaged control on the night
+            // panel (2026-08-22). The old solid-white block glared here.
+            g.setColour (juce::Colour (SolLookAndFeel::kAccentGlow).withAlpha (0.18f));
+            g.fillRoundedRectangle (box.expanded (3.0f), 6.0f);
+            g.setColour (juce::Colour (SolLookAndFeel::kAccentArc));
+            g.fillRoundedRectangle (box, 3.5f);
         }
         else if (highlighted)
         {
             // Off and under the pointer: the only hint that the label is live.
-            g.setColour (juce::Colour (SolLookAndFeel::kOutline));
-            g.fillRect (glyphs.getBoundingBox (0, -1, true).expanded (kPadX, kPadY));
+            g.setColour (juce::Colour (SolLookAndFeel::kPanelLight));
+            g.fillRoundedRectangle (box, 3.5f);
         }
 
         g.setColour (on ? juce::Colour (SolLookAndFeel::kBackground)
-                        : juce::Colour (SolLookAndFeel::kTitleHi));
+                        : juce::Colour (SolLookAndFeel::kLabel));
         glyphs.draw (g);
     }
 
@@ -92,7 +97,11 @@ private:
         return juce::Font (juce::FontOptions (kTypeface, kFont, juce::Font::plain));
     }
 
-    static constexpr const char* kTypeface = "Times New Roman";
+    /** The brand face, like everything else. This used to be pinned to Times
+        New Roman deliberately — the one control that behaved like set type
+        rather than an instrument — but that reading belonged to the white
+        plate, and the night panel is a sans throughout (2026-08-22). */
+    static constexpr const char* kTypeface = SolLookAndFeel::kBrandTypeface;
 
     /** Set to match VolumeArc::kLabelFont — the two sit one above the other in
         the column and have to read as the same size of type. */

@@ -94,9 +94,14 @@ namespace SolDither
                     const float r = rng.nextFloat();
                     juce::Colour c = juce::Colours::transparentBlack;
 
-                    if (r < 0.16f)        c = juce::Colours::black.withAlpha (0.55f);
-                    else if (r < 0.30f)   c = juce::Colours::white.withAlpha (0.30f);
-                    else if (r < 0.36f)   c = juce::Colours::black.withAlpha (0.22f);
+                    // Weighted toward the LIGHT speckle since the night-panel
+                    // pass (2026-08-22): the ground is now dark, so the bright
+                    // grains are the ones that read and the dark ones only
+                    // deepen it. Both directions are still present — grain
+                    // that only ever goes one way reads as dust, not noise.
+                    if (r < 0.16f)        c = juce::Colours::white.withAlpha (0.34f);
+                    else if (r < 0.30f)   c = juce::Colours::black.withAlpha (0.40f);
+                    else if (r < 0.36f)   c = juce::Colours::white.withAlpha (0.16f);
 
                     data.setPixelColour (x, y, c);
                 }

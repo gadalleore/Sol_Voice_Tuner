@@ -101,16 +101,21 @@ public:
         const float angle = kStartAngle + juce::jlimit (0.0f, 1.0f, t)
                                               * (kEndAngle - kStartAngle);
 
-        g.setColour (juce::Colour (SolLookAndFeel::kTitleHi));
-
         // The sweep so far. At the bottom of the range there is none, and the
-        // pointer below is the entire control.
+        // pointer below is the entire control. Amber, with a bloom under it —
+        // the value colour everywhere on the night panel (2026-08-22).
         if (angle - kStartAngle > kMinSweep)
         {
             juce::Path arc;
             arc.addCentredArc (centre.x, centre.y, r, r,
                                0.0f, kStartAngle, angle, true);
 
+            g.setColour (juce::Colour (SolLookAndFeel::kAccentGlow).withAlpha (0.20f));
+            g.strokePath (arc, juce::PathStrokeType (stroke * 2.1f,
+                                                     juce::PathStrokeType::curved,
+                                                     juce::PathStrokeType::rounded));
+
+            g.setColour (juce::Colour (SolLookAndFeel::kAccentArc));
             g.strokePath (arc, juce::PathStrokeType (stroke,
                                                      juce::PathStrokeType::curved,
                                                      juce::PathStrokeType::rounded));
@@ -121,11 +126,13 @@ public:
         const float sinA = std::sin (angle);
         const float cosA = std::cos (angle);
 
+        g.setColour (juce::Colour (SolLookAndFeel::kTitleHi));
         g.drawLine ({ centre.x, centre.y,
                       centre.x + sinA * r,
                       centre.y - cosA * r },
                     stroke);
 
+        g.setColour (juce::Colour (SolLookAndFeel::kLabel));
         g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface,
                                                   kLabelFont,
                                                   juce::Font::plain)));

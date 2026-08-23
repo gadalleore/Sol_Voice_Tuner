@@ -270,11 +270,10 @@ public:
             auto pill = juce::Rectangle<float> (pillW, pillH).withCentre (p);
             if (on)
             {
-                g.setColour (juce::Colour (hot ? SolLookAndFeel::kPanelLight : SolLookAndFeel::kPanel));
-                g.fillRoundedRectangle (pill, pill.getHeight() * 0.5f);
-                g.setColour (juce::Colour (hot ? SolLookAndFeel::kOutlineHi : SolLookAndFeel::kOutline));
-                g.drawRoundedRectangle (pill, pill.getHeight() * 0.5f, hot ? 2.0f : 1.2f);
-                g.setColour (juce::Colour (SolLookAndFeel::kTitleHi));
+                // Bare word, same language as the Home/Effects wheels: no
+                // pill, no border — hover and drag read through colour alone
+                // (Giuseppe, 2026-07-28: no ugly circles around the words).
+                g.setColour (juce::Colour (hot ? SolLookAndFeel::kOutlineHi : SolLookAndFeel::kTitleHi));
                 g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 13.0f, juce::Font::plain)));
                 g.drawText ("Harmony " + juce::String (i + 1), pill, juce::Justification::centred);
             }
@@ -294,14 +293,13 @@ public:
             }
         }
 
-        // Lead hub.
+        // Lead hub: bare plate with a ring, same language as the wheel's own
+        // orb — no fill (Giuseppe, 2026-07-31: "the orb is now bare plate").
         const bool leadHot = hovered == kLeadHit;
-        g.setColour (juce::Colour (leadHot ? SolLookAndFeel::kPanelLight : SolLookAndFeel::kPanel));
-        g.fillEllipse (centre.x - hubR, centre.y - hubR, hubR * 2.0f, hubR * 2.0f);
-        g.setColour (juce::Colour (leadHot ? SolLookAndFeel::kOutlineHi : SolLookAndFeel::kAccentGlow)
+        g.setColour (juce::Colour (leadHot ? SolLookAndFeel::kOutlineHi : SolLookAndFeel::kOutline)
                          .withAlpha (0.7f));
-        g.drawEllipse (centre.x - hubR, centre.y - hubR, hubR * 2.0f, hubR * 2.0f, 2.0f);
-        g.setColour (juce::Colour (SolLookAndFeel::kTitleHi));
+        g.drawEllipse (centre.x - hubR, centre.y - hubR, hubR * 2.0f, hubR * 2.0f, 1.5f);
+        g.setColour (juce::Colour (leadHot ? SolLookAndFeel::kOutlineHi : SolLookAndFeel::kTitleHi));
         g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 14.0f, juce::Font::plain)));
         g.drawText ("LEAD", juce::Rectangle<float> (centre.x - hubR, centre.y - 9.0f, hubR * 2.0f, 18.0f),
                     juce::Justification::centred);

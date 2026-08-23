@@ -9,6 +9,8 @@
 
 #include <JuceHeader.h>
 
+#include "SolLookAndFeel.h"
+
 class OscilloscopeComponent : public juce::Component
 {
 public:
@@ -25,8 +27,11 @@ private:
 
     juce::AudioBuffer<float> internalBuffer;
 
-    juce::Colour bgColour     { 0xff1a1a2f };  // SolLookAndFeel kPanel
-    juce::Colour gridColour   { 0xff3a3a5f };  // kOutline
-    juce::Colour traceColour  { 0xff00d4ff };  // kAccentArc
-    juce::Colour traceGlow    { 0xff00b4ff };  // kAccentGlow
+    // Sun-white (Giuseppe, 2026-07-28): these carried the pre-rebrand cosmic
+    // navy/cyan palette as hardcoded hex, unlike everywhere else that reads
+    // named SolLookAndFeel constants. Black ink trace, matching the hub's
+    // goniometer (PluginEditor.cpp sets hubScope's trace to kTitleHi too).
+    juce::Colour bgColour     { SolLookAndFeel::kPanel };
+    juce::Colour gridColour   { SolLookAndFeel::kOutline };
+    juce::Colour traceColour  { SolLookAndFeel::kTitleHi };
 };

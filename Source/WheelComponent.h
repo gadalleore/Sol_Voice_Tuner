@@ -39,6 +39,7 @@
 
 #include "SolDither.h"
 #include "SolLookAndFeel.h"
+#include "SolPanel.h"
 #include "SpectrumStrip.h"
 
 class WheelComponent final : public juce::Component,
@@ -475,11 +476,22 @@ public:
             g.saveState();
             g.reduceClipRegion (paletteClip.toNearestInt());
 
+            // The instruction, on its own plate. "PULL OUT" said what to do
+            // with your hand but not what it accomplishes; this names the
+            // gesture AND its result, which is the whole job of the label on
+            // an unfamiliar control surface (Giuseppe, 2026-08-23).
             auto header = paletteClip;
-            g.setColour (juce::Colour (SolLookAndFeel::kLabelAlt).withAlpha (0.5f));
-            g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 10.5f, juce::Font::plain)));
-            g.drawText ("PULL OUT", header.removeFromTop (kPaletteHeaderH),
-                        juce::Justification::centred);
+            {
+                const auto plate = header.removeFromTop (kPaletteHeaderH).reduced (2.0f, 2.0f);
+                SolPanel::draw (g, plate, false, 6.0f);
+
+                g.setColour (juce::Colour (SolLookAndFeel::kLabelAlt));
+                g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface,
+                                                          9.5f, juce::Font::plain)));
+                g.drawFittedText ("PULL INTO RING\nTO ADD EFFECT",
+                                  plate.reduced (4.0f, 2.0f).toNearestInt(),
+                                  juce::Justification::centred, 2);
+            }
 
             // Say so when the list runs past the box, at both ends.
             if (const float maxScroll = maxPaletteScroll(); maxScroll > 0.001f)
@@ -509,9 +521,18 @@ public:
                                     && dragPaletteIndex == (int) i;
                 const bool hovered   = ! dragging() && (int) i == hoveredPalette;
 
-                // The word IS the item — no pill, no oval, same as the items out
-                // on the rim (Giuseppe: no ugly circles around them). Hover and
-                // drag read through colour alone.
+                // Each effect gets its own plate (Giuseppe, 2026-08-23). As
+                // bare words the palette read as a list of text; as plates they
+                // read as PARTS in a tray — which is what they are, since the
+                // gesture is to pick one up and mount it on the ring.
+                SolPanel::draw (g, pill.reduced (1.0f, 1.5f), false, 5.0f);
+
+                if (hovered)
+                {
+                    g.setColour (juce::Colour (SolLookAndFeel::kAccentArc).withAlpha (0.5f));
+                    g.drawRoundedRectangle (pill.reduced (1.0f, 1.5f), 3.0f, 1.2f);
+                }
+
                 g.setColour (juce::Colour (hovered ? kHoverText : SolLookAndFeel::kTitleHi)
                                  .withAlpha (isDragged ? 0.35f : 1.0f));
                 g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface,
@@ -521,6 +542,54 @@ public:
             }
 
             g.restoreState();
+        }
+
+        // ---- "Pull to remove", outboard of the rim -------------------------
+        //
+        // Dropping a placed effect off the rim deletes it (see mouseUp), and
+        // nothing said so: the only way to discover it was by accident. The
+        // arrow points the way OUT — rightward, away from the ring — and lights
+        // up while a slot is actually being dragged, which is the one moment
+        // the instruction is about to be needed (Giuseppe, 2026-08-23).
+        if (itemsDraggable && radius > 0.0f)
+        {
+            const bool live = dragSource == DragSource::slot;
+            const auto box = juce::Rectangle<float> (kRemoveHintW, kRemoveHintH)
+                                 .withCentre ({ centre.x + radius + kRemoveHintGap
+                                                    + kRemoveHintW * 0.5f,
+                                                centre.y });
+
+            if (box.getRight() < (float) getWidth())
+            {
+                SolPanel::draw (g, box, false, 6.0f);
+
+                const auto ink = juce::Colour (live ? SolLookAndFeel::kAccentArc
+                                                    : SolLookAndFeel::kLabelAlt)
+                                     .withAlpha (live ? 1.0f : 0.55f);
+
+                auto row = box.reduced (8.0f, 4.0f);
+                const auto arrow = row.removeFromRight (18.0f);
+
+                g.setColour (ink);
+                g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface,
+                                                          9.5f, juce::Font::plain)));
+                g.drawFittedText ("PULL TO\nREMOVE", row.toNearestInt(),
+                                  juce::Justification::centredRight, 2);
+
+                // A shaft with a head: unmistakably "this way out".
+                const float cy = arrow.getCentreY();
+                const float x0 = arrow.getX(), x1 = arrow.getRight();
+
+                g.drawLine (x0, cy, x1, cy, live ? 1.8f : 1.3f);
+
+                juce::Path head;
+                head.startNewSubPath (x1 - 5.0f, cy - 4.0f);
+                head.lineTo          (x1,        cy);
+                head.lineTo          (x1 - 5.0f, cy + 4.0f);
+                g.strokePath (head, juce::PathStrokeType (live ? 1.8f : 1.3f,
+                                                          juce::PathStrokeType::curved,
+                                                          juce::PathStrokeType::rounded));
+            }
         }
 
         // Drag ghost on top of everything. Bare text, like the items — no pill
@@ -1058,7 +1127,12 @@ private:
     // the list in; below that it scrolls. The header is the "PULL OUT" caption.
     static constexpr float kPaletteMaxRowH  = 36.0f;
     static constexpr float kPaletteMinRowH  = 17.0f;
-    static constexpr float kPaletteHeaderH  = 20.0f;
+    static constexpr float kPaletteHeaderH  = 34.0f;
+
+    /** The "pull to remove" plate, sitting outboard of the rim. */
+    static constexpr float kRemoveHintW   = 104.0f;
+    static constexpr float kRemoveHintH   = 34.0f;
+    static constexpr float kRemoveHintGap = 26.0f;
 
     // Visible semicircle (right half of the circle, top -> bottom).
     static constexpr float arcStart  = 0.30f;                                    // ~17 deg

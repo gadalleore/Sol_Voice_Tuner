@@ -294,8 +294,8 @@ public:
             const float bandW = juce::jlimit (14.0f, 30.0f, radius * 0.13f);
 
             juce::Path band;
-            band.addCentredArc (centre.x, centre.y, radius, radius,
-                                0.0f, arcStart, arcEnd, true);
+            band.addEllipse (centre.x - radius, centre.y - radius,
+                             radius * 2.0f, radius * 2.0f);
 
             // The plate of the ring.
             g.setColour (juce::Colour (SolLookAndFeel::kPanelLight));
@@ -309,21 +309,19 @@ public:
             {
                 juce::Path edge;
                 const float r = radius + rail.first * bandW;
-                edge.addCentredArc (centre.x, centre.y, r, r, 0.0f, arcStart, arcEnd, true);
+                edge.addEllipse (centre.x - r, centre.y - r, r * 2.0f, r * 2.0f);
                 g.setColour (juce::Colour (rail.second).withAlpha (0.55f));
                 g.strokePath (edge, juce::PathStrokeType (1.0f));
             }
 
             // Panel joints, marching with the wheel.
             const float pitch  = kRimSegment;
-            const float offset = std::fmod (wheelPhase - rimScroll, pitch);
+            const float offset = std::fmod (wheelPhase, pitch);
 
             g.setColour (juce::Colour (SolLookAndFeel::kOutline).withAlpha (0.8f));
 
-            for (float a = arcStart + offset; a <= arcEnd; a += pitch)
+            for (float a = offset; a < juce::MathConstants<float>::twoPi; a += pitch)
             {
-                if (a < arcStart) continue;
-
                 const float s = std::sin (a), c = std::cos (a);
                 g.drawLine (centre.x + s * (radius - bandW * 0.5f),
                             centre.y - c * (radius - bandW * 0.5f),
@@ -343,12 +341,14 @@ public:
         if (itemsDraggable && radius > 0.0f)
         {
             const bool live = dragSource == DragSource::slot;
-            const auto box = juce::Rectangle<float> (kRemoveHintW, kRemoveHintH)
-                                 .withCentre ({ centre.x + radius + kRemoveHintGap
-                                                    + kRemoveHintW * 0.5f,
-                                                centre.y });
 
-            if (box.getRight() < (float) getWidth())
+            // Outboard of the rim, on the side you pull toward, and clamped
+            // inside the panel so a large radius cannot push it off the edge.
+            const float wantX = centre.x + radius + kRemoveHintGap;
+            const auto box = juce::Rectangle<float> (kRemoveHintW, kRemoveHintH)
+                                 .withX (juce::jmin (wantX, (float) getWidth() - kRemoveHintW - 10.0f))
+                                 .withY (centre.y - kRemoveHintH * 0.5f);
+
             {
                 SolPanel::drawNotice (g, box, live);
 
@@ -483,49 +483,9 @@ public:
             }
         }
 
-        // Rim-scroll hints when the chain extends past the visible arc.
-        //
-        // The zones themselves are drawn, not just captioned. Hover-to-scroll
-        // is the primary way through a 25-slot chain and it was completely
-        // invisible — a caption that only appears once you have ALREADY
-        // scrolled cannot teach you that scrolling exists (Giuseppe, 2026-08-23).
-        if (scrollableRim())
-        {
-            const float zone = (float) getHeight() * kEdgeZoneFrac;
-            const bool  more[] { rimScroll > 0.001f, rimScroll < maxRimScroll() - 0.001f };
-
-            for (int end = 0; end < 2; ++end)
-            {
-                if (! more[end])
-                    continue;
-
-                const auto strip = end == 0
-                    ? juce::Rectangle<float> (0.0f, 0.0f, (float) getWidth(), zone)
-                    : juce::Rectangle<float> (0.0f, (float) getHeight() - zone,
-                                              (float) getWidth(), zone);
-
-                const bool live = edgeScrollDir != 0.0f
-                               && ((end == 0) == (edgeScrollDir < 0.0f));
-
-                // No wash. A gradient bled across the top and bottom of the
-                // panel and read as a rendering artefact rather than as an
-                // affordance, whichever alpha it was given — the band is wide,
-                // it crosses other plates, and it has no edge of its own to
-                // justify it (Giuseppe, 2026-08-23). The caption carries the
-                // hint on its own and brightens when the zone is live, which
-                // is the same information without the smear.
-                juce::ignoreUnused (strip);
-
-                g.setColour (juce::Colour (live ? SolLookAndFeel::kAccentArc
-                                                : SolLookAndFeel::kLabelAlt)
-                                 .withAlpha (live ? 0.95f : 0.5f));
-                g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface,
-                                                          10.0f, juce::Font::plain)));
-                g.drawText (end == 0 ? "^ more" : "v more",
-                            end == 0 ? scrollHintTop() : scrollHintBottom(),
-                            juce::Justification::centredLeft);
-            }
-        }
+        // No rim-scroll hints: the ring is whole, so there is nothing off
+        // screen to advertise. The two captions they left floating above and
+        // below the plate were the artefacts (Giuseppe, 2026-08-23).
 
         // Palette inside the visible half of the hub.
         if (! palette.empty())
@@ -605,15 +565,33 @@ public:
         // behind it (Giuseppe, 2026-07-28: no ovals around the words).
         if (dragging())
         {
-            auto ghost = pillAround (dragPos);
-            // The whole PART travels, not just its name: you picked a plate
-            // out of the tray, so a plate is what follows the pointer.
+            // The part does NOT change as you pull it out (Giuseppe,
+            // 2026-08-23). It used to be re-drawn at the rim's pill size and
+            // font, so a plate picked out of the tray grew and re-typeset in
+            // the hand — which read as picking up one thing and carrying a
+            // different one. The ghost now keeps the palette plate's own size
+            // and point size all the way onto the ring.
+            const bool fromTray = dragSource == DragSource::palette;
+
+            const auto size = fromTray ? paletteRect (juce::jmax (0, dragPaletteIndex))
+                                       : labelBox (juce::jmax (0, dragFromSlot));
+
+            const auto ghost = juce::Rectangle<float> (size.getWidth(), size.getHeight())
+                                   .withCentre (dragPos);
+
             SolPanel::draw (g, ghost.reduced (1.0f, 1.5f), false, 5.0f);
-            g.setColour (juce::Colour (SolLookAndFeel::kAccentArc).withAlpha (0.6f));
+
+            g.setColour (juce::Colour (SolLookAndFeel::kAccentArc).withAlpha (0.7f));
             g.drawRoundedRectangle (ghost.reduced (1.0f, 1.5f), 3.0f, 1.2f);
+
             g.setColour (juce::Colour (SolLookAndFeel::kTitleHi));
-            g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface, 13.0f, juce::Font::plain)));
-            g.drawText (nameForType (dragTypeId), ghost, juce::Justification::centred);
+            g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface,
+                                                      fromTray ? paletteFontHeight()
+                                                               : itemFontHeight,
+                                                      juce::Font::plain)));
+            g.drawText (nameForType (dragTypeId), ghost.reduced (6.0f, 0.0f),
+                        fromTray ? juce::Justification::centredLeft
+                                 : juce::Justification::centred);
         }
     }
 
@@ -761,9 +739,8 @@ private:
         hoveredSlot    = hitSlot (pos);
         hoveredPalette = hitPalette (pos);
 
-        const float halfH = juce::jmax (1.0f, (float) getHeight() * 0.5f);
-        const float norm  = juce::jlimit (-1.0f, 1.0f, (pos.y - centre.y) / halfH);
-        targetPhase = -norm * maxHoverPhase;
+        // Hover no longer nudges the phase: it fought the idle rotation, and
+        // on a whole ring there is nothing hidden for a nudge to reveal.
 
         // Edge zones: parking the cursor near the top/bottom of the wheel
         // auto-scrolls the rim through chains longer than the visible arc.
@@ -793,6 +770,21 @@ private:
     void timerCallback() override
     {
         bool busy = false;
+
+        // The ring turns on its own when left alone (Giuseppe, 2026-08-23) —
+        // slowly, one revolution in about kIdleSpinSeconds. Hovering or
+        // dragging holds it still, because you cannot aim at a moving target
+        // and the moment the pointer is over the wheel you are aiming.
+        if (! isMouseOverOrDragging() && ! dragging())
+        {
+            wheelPhase += juce::MathConstants<float>::twoPi
+                        / (kIdleSpinSeconds * (float) animFps);
+
+            if (wheelPhase > juce::MathConstants<float>::twoPi)
+                wheelPhase -= juce::MathConstants<float>::twoPi;
+
+            busy = true;
+        }
 
         // Hover glide toward the target rotation.
         const float diff = targetPhase - wheelPhase;
@@ -895,6 +887,14 @@ private:
     void computeGeometry()
     {
         const auto b = getLocalBounds().toFloat();
+
+        // The wheel keeps its original placement — centre pinned to the LEFT
+        // edge, so what you see is the right-hand side of a big ring passing
+        // by. What changed (Giuseppe, 2026-08-23) is that the ring is now
+        // WHOLE: the 25 slots are spread around the full circle and it turns
+        // continuously, so slots enter at the top, sweep across the visible
+        // side and leave at the bottom, round and round. It used to be a bare
+        // semicircle that had to be scrolled.
         radius = juce::jmin (b.getHeight() * 0.52f, b.getWidth() * 0.62f);
         centre = { b.getX(), b.getCentreY() };   // flush to the edge
 
@@ -925,11 +925,8 @@ private:
 
     float hubRadius() const noexcept { return radius * 0.62f; }
 
-    bool scrollableRim() const noexcept
-    {
-        return itemsDraggable
-            && (float) (numSlots - 1) * slotPitch > (arcEnd - arcStart) + 0.001f;
-    }
+    /** Nothing scrolls: the ring is whole, so every slot is always shown. */
+    bool scrollableRim() const noexcept { return false; }
 
     float maxRimScroll() const noexcept
     {
@@ -941,41 +938,38 @@ private:
         rimScroll = juce::jlimit (0.0f, maxRimScroll(), rimScroll);
     }
 
+    /** Slots are spread evenly around the WHOLE circle. No scrolling: every
+        slot in the chain is on screen at once, which is the point of the ring
+        being whole. */
     float slotAngle (int i) const
     {
-        if (! scrollableRim())
-        {
-            // Few enough slots: spread them evenly across the semicircle.
-            const float t = ((float) i + 0.5f) / (float) numSlots;
-            return arcStart + (arcEnd - arcStart) * t + wheelPhase;
-        }
-
-        // Many slots: fixed pitch + rim scroll.
-        return arcStart + (float) i * slotPitch - rimScroll + wheelPhase;
+        return juce::MathConstants<float>::twoPi * (float) i / (float) juce::jmax (1, numSlots)
+             + wheelPhase;
     }
 
+    /** Only the right-hand side of the ring is on the panel — the rest of the
+        circle is off the left edge, where the centre sits. A slot counts as
+        visible while it is on that side, with a margin so it is already
+        drawn (and fading in) before it reaches the edge. */
     bool slotVisible (int i) const
     {
-        const float a = slotAngle (i);
-        return a >= arcStart - slotPitch * 0.45f
-            && a <= arcEnd   + slotPitch * 0.45f;
+        return std::sin (slotAngle (i)) > kVisibleSin;
+    }
+
+    /** 1 across the middle of the visible side, easing to 0 as a slot turns
+        away toward the top or bottom edge. This is what lets the ring rotate
+        forever without slots being sliced off by the panel edge — they
+        dissolve as they go round the back and reappear the same way. */
+    float slotEdgeFadeFor (int i) const
+    {
+        const float s = std::sin (slotAngle (i));
+        return juce::jlimit (0.0f, 1.0f, (s - kVisibleSin) / kFadeSpan);
     }
 
     /** 1 well inside the arc, easing to 0 as a slot reaches either end of it.
         This is what stops a socket being sliced off by the panel edge as it
         scrolls past — it dissolves instead of being cut. */
-    float slotEdgeFade (int i) const
-    {
-        if (! scrollableRim())
-            return 1.0f;
-
-        const float a    = slotAngle (i);
-        const float span = slotPitch * 0.9f;
-        const float head = (a - arcStart) / span;      // distance in from the top
-        const float tail = (arcEnd - a)   / span;      // ...and from the bottom
-
-        return juce::jlimit (0.0f, 1.0f, juce::jmin (head, tail));
-    }
+    float slotEdgeFade (int i) const { return slotEdgeFadeFor (i); }
 
     juce::Point<float> slotCentre (int i) const
     {
@@ -1228,6 +1222,14 @@ private:
     /** Angular pitch of the rim's panel joints, in radians. Coarse enough that
         the segments read as PLATES rather than as a gear's teeth. */
     static constexpr float kRimSegment        = 0.19f;
+
+    /** Seconds for one idle revolution, and how far the ring sits inside its
+        own bounds so the sockets and labels are not clipped. */
+    static constexpr float kIdleSpinSeconds   = 90.0f;
+    /** How far round the ring stays on the panel, as sin(angle), and the
+        span over which a slot fades as it turns away. */
+    static constexpr float kVisibleSin        = -0.12f;
+    static constexpr float kFadeSpan          = 0.22f;
 
     /** How far the ring sits outside the orb, as a multiple of its radius. */
     static constexpr float kRingOrbGap        = 1.30f;

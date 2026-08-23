@@ -21,6 +21,7 @@
 #include <JuceHeader.h>
 
 #include "EffectParams.h"
+#include "EqCurve.h"
 #include "SolLookAndFeel.h"
 #include "SolPage.h"
 #include "SolPanel.h"
@@ -51,6 +52,10 @@ public:
         controls.clear();
         amountAtt.reset();
         effectName = {};
+        isEq = false;
+        eqCurve.unbind();
+        eqCurve.setVisible (false);
+        bandHeader.setVisible (false);
         setVisible (false);
 
         if (onSizeChanged != nullptr)
@@ -66,6 +71,12 @@ public:
         the chrome that surrounds it. */
     juce::Point<int> preferredLogicalSize() const
     {
+        // The EQ is sized to its CURVE, not to a count of controls: it shows
+        // four knobs whatever happens, and twenty-one cells' worth of grid
+        // would be the wrong answer by a factor of five.
+        if (isEq)
+            return { kEqLogicalW, kEqLogicalH };
+
         int mainCount = 0, filterCount = 0;
 
         for (const auto& c : controls)
@@ -108,6 +119,18 @@ public:
         styleCaption (filterHeader, "FILTER");
         filterHeader.setJustificationType (juce::Justification::centredLeft);
         addAndMakeVisible (filterHeader);
+
+        // The EQ's curve. Hidden for every other effect — this is the one
+        // control set that is a SHAPE, and the only one that earns a bespoke
+        // display rather than the generic grid.
+        addChildComponent (eqCurve);
+
+        eqCurve.onBandSelected = [this] (int) { resized(); repaint(); };
+        eqCurve.onBandTypeChanged = [this] { updateEqEnablement(); };
+
+        styleCaption (bandHeader, {});
+        bandHeader.setJustificationType (juce::Justification::centredLeft);
+        addChildComponent (bandHeader);
     }
 
     /** The plate, plus the filter module's own recessed panel. Grouping has to
@@ -164,6 +187,22 @@ public:
             apvts, amountParamId, amount);
 
         buildControls (type, paramIdFor);
+
+        isEq = (type == VocalFx::EffectType::FinalEQ);
+        eqCurve.setVisible (isEq);
+        bandHeader.setVisible (isEq);
+
+        if (isEq)
+        {
+            eqCurve.bind (apvts, [&paramIdFor, type] (const juce::String& id)
+                                 { return paramIdFor (type, id.toRawUTF8()); });
+            updateEqEnablement();
+        }
+        else
+        {
+            eqCurve.unbind();
+        }
+
         resized();
 
         if (onSizeChanged != nullptr)
@@ -190,12 +229,25 @@ private:
         return false;
     }
 
+    /** Which EQ band a control belongs to, or -1. The ids are "b1Freq",
+        "b2Gain" and so on (EffectParams.h's VOCALFX_EQ_BAND), so the band is
+        the digit — the table is the only place the numbering is declared and
+        this reads it back rather than restating it. */
+    static int eqBandOf (const char* id) noexcept
+    {
+        if (id == nullptr || id[0] != 'b' || id[1] < '1' || id[1] > '5')
+            return -1;
+
+        return id[1] - '1';
+    }
+
     struct Control
     {
         VocalFx::ParamKind kind {};
         const char* id       = nullptr;
         bool        isFilter = false;   //!< belongs to the FILTER module
         bool        isEnable = false;   //!< the effect's On — lives in the header, not the grid
+        int         eqBand   = -1;      //!< 0-4 for an EQ band control, else -1
 
         std::unique_ptr<juce::Slider>      knob;
         std::unique_ptr<juce::ToggleButton> toggle;
@@ -237,6 +289,7 @@ private:
             c.id       = p.id;
             c.isFilter = isFilterControl (p.id);
             c.isEnable = p.id != nullptr && std::strcmp (p.id, "enabled") == 0;
+            c.eqBand   = eqBandOf (p.id);
 
             // No widget for On (Giuseppe, 2026-08-22). The PARAMETER stays —
             // EffectChain still gates the slot from it and the host can still
@@ -287,7 +340,14 @@ private:
             }
 
             c.caption = std::make_unique<juce::Label>();
-            styleCaption (*c.caption, p.name);
+
+            // Only one band's knobs are on screen at a time, and which band it
+            // is is said once in the header above them — so "B3 Freq" repeats
+            // itself four times over. Drop the prefix the table carries for
+            // the parameter list's benefit and leave the control's own name.
+            styleCaption (*c.caption, c.eqBand >= 0
+                                        ? juce::String (p.name).fromFirstOccurrenceOf (" ", false, false)
+                                        : juce::String (p.name));
             addAndMakeVisible (*c.caption);
 
             controls.push_back (std::move (c));
@@ -317,6 +377,12 @@ private:
         if (controls.empty())
         {
             filterHeader.setVisible (false);
+            return;
+        }
+
+        if (isEq)
+        {
+            layoutEq (area);
             return;
         }
 
@@ -366,6 +432,91 @@ private:
 
             layoutGrid (main, area, cellH, juce::jmin (kMainKnob, cellH - kCaptionH - 18));
         }
+    }
+
+    /** The EQ: curve on top, then the four knobs of whichever band is
+        selected.
+
+        Not all twenty at once. Five bands times four controls is a wall that
+        tells you nothing about the filter and takes a window a third wider
+        than any other effect to hold — and the curve above already shows all
+        five at a glance. A parametric EQ has always worked this way: you pick
+        a band, then you have Freq, Gain, Q and shape for it. The other
+        sixteen controls still EXIST — their parameters and attachments are
+        live, so the host can automate any of them — they are simply not on
+        screen while you are working on a different band. */
+    void layoutEq (juce::Rectangle<int> area)
+    {
+        filterHeader.setVisible (false);
+        filterBlock = {};
+
+        const int band = eqCurve.selectedBand();
+
+        std::vector<Control*> shown;
+
+        for (auto& c : controls)
+        {
+            const bool mine = (c.eqBand == band);
+
+            if (auto* w = c.widget())  w->setVisible (mine);
+            if (c.caption != nullptr)  c.caption->setVisible (mine);
+
+            if (mine)
+                shown.push_back (&c);
+        }
+
+        // The band's row of knobs is taken off the BOTTOM so the curve gets
+        // every pixel that is going — it is the control, and the knobs are the
+        // fine adjustment beside it.
+        // Squeezed panel: give the knob row up to a third of what is left
+        // rather than taking its full height and leaving the curve inverted.
+        auto row = area.removeFromBottom (
+            juce::jlimit (30, kEqRowH,
+                          juce::jmin (kEqRowH, (area.getHeight() - kGroupHeaderH) / 3)));
+
+        bandHeader.setText ("BAND " + juce::String (band + 1) + "   ·   "
+                                + SpaceDustFinalEQ::typeChoices()[
+                                      juce::jlimit (0, SpaceDustFinalEQ::numTypes - 1,
+                                                    (int) eqCurve.typeOf (band))],
+                            juce::dontSendNotification);
+        bandHeader.setBounds (area.removeFromBottom (kGroupHeaderH).withTrimmedLeft (2));
+
+        eqCurve.setBounds (area.withTrimmedBottom (4));
+
+        // The row's OWN height, not kEqRowH: layoutGrid drops any cell that
+        // would overflow the rectangle it is given, so a cell height larger
+        // than the row silently lays out nothing at all.
+        layoutGrid (shown, row, row.getHeight(), kFilterKnob + 6);
+    }
+
+    /** Low Pass and High Pass have no gain — the DSP ignores gainDb for them
+        (SpaceDustFinalEQ::typeUsesGain). A live knob that changes nothing is
+        worse than no knob, so it goes dead and the curve pins that band's
+        handle to the 0 dB line to match. */
+    void updateEqEnablement()
+    {
+        if (! isEq || ! eqCurve.isBound())
+            return;
+
+        for (auto& c : controls)
+        {
+            if (c.eqBand < 0 || c.knob == nullptr || c.id == nullptr)
+                continue;
+
+            if (juce::String (c.id).endsWith ("Gain"))
+            {
+                const bool usable = SpaceDustFinalEQ::typeUsesGain (eqCurve.typeOf (c.eqBand));
+
+                c.knob->setEnabled (usable);
+                c.knob->setAlpha (usable ? 1.0f : 0.35f);
+
+                if (c.caption != nullptr)
+                    c.caption->setAlpha (usable ? 1.0f : 0.35f);
+            }
+        }
+
+        // The header names the shape, so it has to be redrawn when it changes.
+        resized();
     }
 
     /** Lays a set of controls into `area` on a fixed-width grid. `knobSize`
@@ -474,8 +625,30 @@ private:
 
     juce::AudioProcessorValueTreeState& apvts;
 
+    /** The band row's height, and the smallest curve worth drawing. Below
+        about 140px a 30 dB span stops resolving a 3 dB move, and an EQ you
+        cannot see a small change on is not an EQ. */
+    static constexpr int kEqRowH     = 74;
+    static constexpr int kEqCurveMinH = 150;
+
+    /** What the EQ asks the window for. Wider and taller than any other
+        effect, because the curve is the control and a cramped one is unusable
+        — five bands across a 250px plot puts their handles on top of each
+        other at the low end, where a log axis is already tightest. */
+    /** Derived, not guessed: the page's own chrome (title, slot line, the
+        Amount row) plus the band header and knob row plus kEqCurveMinH. Type
+        a smaller number here and the curve is what gets squeezed. */
+    static constexpr int kEqLogicalW = 640;
+    static constexpr int kEqLogicalH = kChromeH + 20 + 24 + 18 + 4
+                                     + (kAmountSize + kCaptionH) + 6
+                                     + kEqCurveMinH + kGroupHeaderH + kEqRowH;
+
     juce::Slider amount;
-    juce::Label  amountLabel, slotLabel, filterHeader;
+    juce::Label  amountLabel, slotLabel, filterHeader, bandHeader;
+
+    /** The Parametric EQ's curve, and whether the bound effect IS the EQ. */
+    EqCurve eqCurve;
+    bool    isEq = false;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> amountAtt;
 
     /** Where the filter module sits, so paint() can put its plate behind it. */

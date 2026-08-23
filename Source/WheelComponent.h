@@ -788,6 +788,15 @@ private:
         if (! itemsDraggable)
             return 0.0f;
 
+        // Not over the palette. The list runs most of the panel's height, so
+        // its bottom entries fall inside the steering strip — and reading down
+        // the list to find Parametric EQ would spin the chain out from under
+        // whatever you were about to drop it on (Giuseppe, 2026-08-23).
+        // Hovering a thing you are about to pick up must not move everything
+        // else.
+        if (! palette.empty() && paletteClip.expanded (kPaletteClearPad).contains (pos))
+            return 0.0f;
+
         const float h    = juce::jmax (1.0f, (float) getHeight());
         const float zone = h * kEdgeZoneFrac;
 

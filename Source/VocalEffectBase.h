@@ -64,7 +64,13 @@ namespace VocalFx
             case EffectType::SoftClip:   return "Soft Clip";
             case EffectType::Compress:   return "Compress";
             case EffectType::Lofi:       return "Lo-Fi";
-            case EffectType::FinalEQ:    return "Final EQ";
+            // "Parametric EQ", not "Final EQ" (Giuseppe, 2026-08-23). It was
+            // Space Dust's name for it, where it really is FINAL — the fixed
+            // last stage of that synth's chain. Here it is one of 25 ordered
+            // slots and can sit anywhere, so "Final" described a position it
+            // no longer has. The enum stays FinalEQ: the value is what saved
+            // sessions store, and the DSP it maps to is unchanged.
+            case EffectType::FinalEQ:    return "Parametric EQ";
             case EffectType::Empty:
             case EffectType::NumTypes:   break;
         }

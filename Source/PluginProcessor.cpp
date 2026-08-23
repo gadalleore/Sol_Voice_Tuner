@@ -184,7 +184,15 @@ PitchCorrectorAudioProcessor::createParameterLayout()
 
                                              Range (0.0f, 1.0f, 0.01f), 0.0f, roboticAttrs));
 
-
+    // Which waveform the vocoder's modulator shapes. A vocoder works on the
+    // carrier's HARMONICS, so this is the whole character of the effect —
+    // Sine is offered for the classic robot tone, not because one partial
+    // makes a good general carrier.
+    params.push_back (std::make_unique<juce::AudioParameterChoice> (
+                          juce::ParameterID { PID_VOC_CARRIER, 1 },
+                          "Carrier",
+                          juce::StringArray { "Saw", "Square", "Triangle", "Sine" },
+                          0));
 
     params.push_back (std::make_unique<APF> (juce::ParameterID { PID_FORMANT, 1 },
 
@@ -1297,6 +1305,9 @@ void PitchCorrectorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     constexpr float kSubMaxMix = 0.25f;
     const float vocalHz = voiced ? juce::jlimit (20.0f, 4000.0f, detectedHz * ratio) : 0.0f;
     const float sawHz   = vocalHz * 0.125f;
+    subVocoder.setCarrier ((VocalFx::SubVocoder::Carrier)
+                               juce::jlimit (0, 3, (int) std::lround (
+                                   apvts.getRawParameterValue (PID_VOC_CARRIER)->load())));
     subVocoder.setFrequency (sawHz);
     subVocoder.setTargetMix (voiced ? sub * kSubMaxMix : 0.0f);
     subVocoder.addTo (buffer, monoInputScratch.data());

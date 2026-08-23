@@ -46,6 +46,7 @@ public:
         pages.push_back (&page);
         addAndMakeVisible (page);
         resized();
+        notifyTopChanged();
     }
 
     void push (juce::Component& page)
@@ -62,6 +63,7 @@ public:
         page.setBounds (getLocalBounds().translated (getWidth(), 0));
         animator.animateComponent (&page, getLocalBounds(), 1.0f, transitionMs, false, 1.0, 1.0);
         startTimer (transitionMs + 40);   // backstop; ChangeListener finalises sooner
+        notifyTopChanged();
     }
 
     /** Drop every page. The stack is reusable afterwards — setRootPage() will
@@ -87,6 +89,17 @@ public:
         rather than tearing the component down under the event. */
     std::function<void()> onPopFromRoot;
 
+    /** Fired whenever the visible page changes — push, pop or a new root.
+        The owner uses it to resize the window to whatever the new page asks
+        for (see PluginEditor::fitShellToPage). */
+    std::function<void()> onTopPageChanged;
+
+    /** The page currently on top, or nullptr when the stack is empty. */
+    juce::Component* getTopPage() const noexcept
+    {
+        return pages.empty() ? nullptr : pages.back();
+    }
+
     void pop()
     {
         if (pages.size() < 2)
@@ -108,6 +121,7 @@ public:
         animator.animateComponent (top, getLocalBounds().translated (getWidth(), 0),
                                    1.0f, transitionMs, false, 1.0, 1.0);
         startTimer (transitionMs + 40);
+        notifyTopChanged();
     }
 
     int getDepth() const noexcept { return (int) pages.size(); }
@@ -142,6 +156,12 @@ private:
             stopTimer();
             finalise();
         }
+    }
+
+    void notifyTopChanged()
+    {
+        if (onTopPageChanged != nullptr)
+            onTopPageChanged();
     }
 
     /** Ensure only the top page is visible once any transition has ended.

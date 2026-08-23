@@ -36,12 +36,15 @@
 #include "VocalEffectBase.h"
 
 #include <array>
+#include <cstring>
 
 namespace VocalFx
 {
     /** The largest number of controls any one effect owns (Trance Gate, with
-        its sixteen steps). Sizes the per-block value snapshot. */
-    static constexpr int kMaxEffectParams = 24;
+        its sixteen steps and its On). Sizes the per-block value snapshot. Kept
+        above the true maximum so appending one control to the widest effect
+        does not silently overflow the snapshot. */
+    static constexpr int kMaxEffectParams = 28;
 
     /** How the detail page draws a control, and which APVTS parameter type
         backs it. */
@@ -77,6 +80,20 @@ namespace VocalFx
     // Shared shapes. Space Dust filters every wet path the same way, so the four
     // filter controls repeat verbatim across Reverb, Delay and Grain Delay.
     //==============================================================================
+    /** Every effect's on/off, matching Space Dust, where each effect carries
+        its own `<fx>Enabled`.
+
+        Sol had none: an effect was on because it sat in a chain slot, so a
+        placed effect could only be silenced by dragging it back out — which is
+        why toggling never behaved the way it does in Space Dust. With this the
+        effect can be muted in place, keeping its slot and its settings.
+
+        Defaults ON, which is the one deliberate difference from Space Dust
+        (its effects default off). There, an effect always exists and the
+        toggle is how you bring it in; here PLACING it in a slot is that act,
+        so defaulting off would make every drag-and-drop look broken. */
+    #define VOCALFX_ENABLED              { "enabled", "On", ParamKind::Toggle, 0.0f, 1.0f, 1.0f }
+
     #define VOCALFX_HP_CUTOFF(defHz, sk) { "hpCut", "HP Cutoff", ParamKind::Knob, 20.0f, 20000.0f, defHz, 1.0f, sk, 0.0f, nullptr, " Hz" }
     #define VOCALFX_LP_CUTOFF(defHz, sk) { "lpCut", "LP Cutoff", ParamKind::Knob, 20.0f, 20000.0f, defHz, 1.0f, sk, 0.0f, nullptr, " Hz" }
     #define VOCALFX_HP_RES(defV)         { "hpRes", "HP Res",    ParamKind::Knob, 0.0f, 1.0f, defV }
@@ -86,12 +103,13 @@ namespace VocalFx
     // Saturate — Sol's own, not from Space Dust. Kept because it is the effect
     // the chain was built and proved against.
     //==============================================================================
-    namespace SaturateIdx { enum { Drive, Mix, Count }; }
+    namespace SaturateIdx { enum { Drive, Mix, Enabled, Count }; }
 
     inline constexpr EffectParam kSaturateParams[] =
     {
         { "drive", "Drive", ParamKind::Knob, 0.0f, 1.0f, 0.35f },
         { "mix",   "Mix",   ParamKind::Knob, 0.0f, 1.0f, 1.0f  },
+        VOCALFX_ENABLED,
     };
     static_assert ((int) std::size (kSaturateParams) == SaturateIdx::Count, "");
 
@@ -101,7 +119,7 @@ namespace VocalFx
     //==============================================================================
     namespace ReverbIdx
     {
-        enum { Type, WetMix, DecayTime, FilterOn, HpCut, HpRes, LpCut, LpRes, WarmSat, Count };
+        enum { Type, WetMix, DecayTime, FilterOn, HpCut, HpRes, LpCut, LpRes, WarmSat, Enabled, Count };
     }
 
     inline constexpr EffectParam kReverbParams[] =
@@ -115,6 +133,7 @@ namespace VocalFx
         VOCALFX_LP_CUTOFF (8000.0f, 0.3f),
         VOCALFX_LP_RES    (0.3f),
         { "warmSat",   "Warm Sat", ParamKind::Toggle, 0.0f, 1.0f, 0.0f },
+        VOCALFX_ENABLED,
     };
     static_assert ((int) std::size (kReverbParams) == ReverbIdx::Count, "");
 
@@ -125,7 +144,12 @@ namespace VocalFx
     //==============================================================================
     namespace DelayIdx
     {
-        enum { Sync, Rate, Decay, Mix, PingPong, FilterOn, HpCut, HpRes, LpCut, LpRes, WarmSat, Count };
+        // No Triplet / Triplet-All, unlike Space Dust: Rate already sweeps an
+        // 18-entry table of straight, dotted AND triplet divisions (see
+        // fx/SolPingPongDelay.h), so a triplet toggle on top of it would
+        // contradict the knob rather than add anything.
+        enum { Sync, Rate, Decay, Mix, PingPong, FilterOn, HpCut, HpRes, LpCut, LpRes, WarmSat,
+               Enabled, Count };
     }
 
     inline constexpr EffectParam kDelayParams[] =
@@ -141,6 +165,7 @@ namespace VocalFx
         VOCALFX_LP_CUTOFF (8000.0f, 0.3f),
         VOCALFX_LP_RES    (0.3f),
         { "warmSat",  "Warm Sat",  ParamKind::Toggle, 0.0f, 1.0f, 0.0f },
+        VOCALFX_ENABLED,
     };
     static_assert ((int) std::size (kDelayParams) == DelayIdx::Count, "");
 
@@ -150,7 +175,7 @@ namespace VocalFx
     namespace GrainIdx
     {
         enum { Time, Size, Pitch, Mix, Decay, Density, Jitter, PingPong,
-               FilterOn, HpCut, HpRes, LpCut, LpRes, WarmSat, Count };
+               FilterOn, HpCut, HpRes, LpCut, LpRes, WarmSat, Enabled, Count };
     }
 
     inline constexpr EffectParam kGrainParams[] =
@@ -169,6 +194,7 @@ namespace VocalFx
         VOCALFX_LP_CUTOFF (4000.0f, 0.25f),
         VOCALFX_LP_RES    (0.5f),
         { "warmSat",  "Warm Sat",  ParamKind::Toggle, 0.0f, 1.0f, 0.0f },
+        VOCALFX_ENABLED,
     };
     static_assert ((int) std::size (kGrainParams) == GrainIdx::Count, "");
 
@@ -178,7 +204,7 @@ namespace VocalFx
     //==============================================================================
     namespace PhaserIdx
     {
-        enum { Rate, Depth, Feedback, Script, Mix, Centre, Stages, Width, Vintage, Count };
+        enum { Rate, Depth, Feedback, Script, Mix, Centre, Stages, Width, Vintage, Enabled, Count };
     }
 
     inline constexpr EffectParam kPhaserParams[] =
@@ -192,13 +218,14 @@ namespace VocalFx
         { "stages",   "Stages",   ParamKind::Choice, 0.0f, 1.0f, 0.0f, 1.0f, 1.0f, 0.0f, "4 (Phase 90)|6 (Deeper)" },
         { "width",    "Width",    ParamKind::Knob,   0.0f, 1.0f, 0.5f },
         { "vintage",  "Vintage",  ParamKind::Toggle, 0.0f, 1.0f, 0.0f },
+        VOCALFX_ENABLED,
     };
     static_assert ((int) std::size (kPhaserParams) == PhaserIdx::Count, "");
 
     //==============================================================================
     // Flanger.
     //==============================================================================
-    namespace FlangerIdx { enum { Rate, Depth, Feedback, Width, Mix, Count }; }
+    namespace FlangerIdx { enum { Rate, Depth, Feedback, Width, Mix, Enabled, Count }; }
 
     inline constexpr EffectParam kFlangerParams[] =
     {
@@ -207,6 +234,7 @@ namespace VocalFx
         { "feedback", "Feedback", ParamKind::Knob, -1.0f, 1.0f, 0.0f },
         { "width",    "Width",    ParamKind::Knob, 0.0f, 1.0f, 0.5f },
         { "mix",      "Mix",      ParamKind::Knob, 0.0f, 1.0f, 0.5f },
+        VOCALFX_ENABLED,
     };
     static_assert ((int) std::size (kFlangerParams) == FlangerIdx::Count, "");
 
@@ -216,7 +244,15 @@ namespace VocalFx
     //==============================================================================
     namespace GateIdx
     {
-        enum { Steps, Sync, Rate, Attack, Release, Mix, Step1, Count = Step1 + 16 };
+        // Enabled sits AFTER the sixteen steps: Step1 is a base that the steps
+        // index off, so anything appended has to clear Step1 + 16.
+        //
+        // No Post, unlike Space Dust. There it picks whether the gate runs
+        // before or after the synth's fixed chain; here the 25 ordered slots
+        // already say exactly where it runs, so the control would have nothing
+        // left to decide. Same reasoning for Bit Crush.
+        enum { Steps, Sync, Rate, Attack, Release, Mix, Step1,
+               Enabled = Step1 + 16, Count };
     }
 
     inline constexpr EffectParam kGateParams[] =
@@ -244,6 +280,7 @@ namespace VocalFx
         { "step14", "14", ParamKind::Toggle, 0.0f, 1.0f, 0.0f },
         { "step15", "15", ParamKind::Toggle, 0.0f, 1.0f, 1.0f },
         { "step16", "16", ParamKind::Toggle, 0.0f, 1.0f, 0.0f },
+        VOCALFX_ENABLED,
     };
     static_assert ((int) std::size (kGateParams) == GateIdx::Count, "");
     static_assert (GateIdx::Count <= kMaxEffectParams, "kMaxEffectParams too small");
@@ -251,13 +288,14 @@ namespace VocalFx
     //==============================================================================
     // Bit Crush.
     //==============================================================================
-    namespace CrushIdx { enum { Amount, Rate, Mix, Count }; }
+    namespace CrushIdx { enum { Amount, Rate, Mix, Enabled, Count }; }
 
     inline constexpr EffectParam kCrushParams[] =
     {
         { "amount", "Crush", ParamKind::Knob, 0.0f, 1.0f, 0.5f },
         { "rate",   "Rate",  ParamKind::Knob, 0.0f, 1.0f, 0.0f },
         { "mix",    "Mix",   ParamKind::Knob, 0.0f, 1.0f, 0.5f },
+        VOCALFX_ENABLED,
     };
     static_assert ((int) std::size (kCrushParams) == CrushIdx::Count, "");
 
@@ -265,7 +303,7 @@ namespace VocalFx
     // Soft Clip. Drive and Knee are 0-1 controls; the clipper maps them onto its
     // own 0.5-5.0 drive and 0.3-1.0 threshold internally, as in Space Dust.
     //==============================================================================
-    namespace ClipIdx { enum { Mode, Drive, Knee, Oversample, Mix, Count }; }
+    namespace ClipIdx { enum { Mode, Drive, Knee, Oversample, Mix, Enabled, Count }; }
 
     inline constexpr EffectParam kClipParams[] =
     {
@@ -274,6 +312,7 @@ namespace VocalFx
         { "knee",  "Knee",  ParamKind::Knob,   0.0f, 1.0f, 0.67f },
         { "os",    "Oversample", ParamKind::Choice, 0.0f, 3.0f, 1.0f, 1.0f, 1.0f, 0.0f, "2x|4x|8x|16x" },
         { "mix",   "Mix",   ParamKind::Knob,   0.0f, 1.0f, 1.0f },
+        VOCALFX_ENABLED,
     };
     static_assert ((int) std::size (kClipParams) == ClipIdx::Count, "");
 
@@ -282,7 +321,7 @@ namespace VocalFx
     //==============================================================================
     namespace CompIdx
     {
-        enum { Type, Threshold, Ratio, Attack, Release, Makeup, Mix, AutoRelease, SoftClip, Count };
+        enum { Type, Threshold, Ratio, Attack, Release, Makeup, Mix, AutoRelease, SoftClip, Enabled, Count };
     }
 
     inline constexpr EffectParam kCompParams[] =
@@ -296,17 +335,19 @@ namespace VocalFx
         { "mix",       "Mix",       ParamKind::Knob,   0.0f, 1.0f, 1.0f },
         { "autoRel",   "Auto Rel",  ParamKind::Toggle, 0.0f, 1.0f, 0.0f },
         { "softClip",  "Soft Clip", ParamKind::Toggle, 0.0f, 1.0f, 0.0f },
+        VOCALFX_ENABLED,
     };
     static_assert ((int) std::size (kCompParams) == CompIdx::Count, "");
 
     //==============================================================================
     // Lo-Fi — one macro upstream, one macro here.
     //==============================================================================
-    namespace LofiIdx { enum { Amount, Count }; }
+    namespace LofiIdx { enum { Amount, Enabled, Count }; }
 
     inline constexpr EffectParam kLofiParams[] =
     {
         { "amount", "Amount", ParamKind::Knob, 0.0f, 1.0f, 0.0f },
+        VOCALFX_ENABLED,
     };
     static_assert ((int) std::size (kLofiParams) == LofiIdx::Count, "");
 
@@ -319,7 +360,7 @@ namespace VocalFx
                B2Freq, B2Gain, B2Q, B2Type,
                B3Freq, B3Gain, B3Q, B3Type,
                B4Freq, B4Gain, B4Q, B4Type,
-               B5Freq, B5Gain, B5Q, B5Type, Count };
+               B5Freq, B5Gain, B5Q, B5Type, Enabled, Count };
 
         /** Four controls per band, in this order. */
         static constexpr int perBand = 4;
@@ -339,6 +380,7 @@ namespace VocalFx
         VOCALFX_EQ_BAND (3,  1000.0f, 1.0f,   4.0f),   // Bell
         VOCALFX_EQ_BAND (4,  4000.0f, 1.0f,   4.0f),   // Bell
         VOCALFX_EQ_BAND (5, 10000.0f, 0.707f, 1.0f),   // High Shelf
+        VOCALFX_ENABLED,
     };
     static_assert ((int) std::size (kEqParams) == EqIdx::Count, "");
     static_assert (EqIdx::Count <= kMaxEffectParams, "kMaxEffectParams too small");
@@ -365,6 +407,23 @@ namespace VocalFx
             case EffectType::NumTypes:   break;
         }
         return {};
+    }
+
+    /** Where an effect keeps its On control, or -1 if it has none.
+
+        Looked up by id rather than hardcoded: the tables are append-only wire
+        format, so every effect's On landed at a different index depending on
+        how many controls it already had. EffectChain uses this to gate the
+        slot, which is why one lookup covers all twelve. */
+    inline int enabledIndex (EffectType t) noexcept
+    {
+        const auto list = effectParams (t);
+
+        for (int i = 0; i < list.count; ++i)
+            if (list[i].id != nullptr && std::strcmp (list[i].id, "enabled") == 0)
+                return i;
+
+        return -1;
     }
 
     /** Short id fragment used to build parameter ids, per effect type. Fixed

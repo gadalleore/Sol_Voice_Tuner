@@ -80,6 +80,13 @@ namespace VocalFx
                 s.wet.reset (0.0f);
                 s.amountRamp.prepare (sampleRate, 20.0f);
                 s.amountRamp.reset (s.amountRamp.target);
+
+                s.enableRamp.prepare (sampleRate, 20.0f);
+                // Open, NOT the ramp's own default of zero. An effect whose
+                // table carries no "enabled" control never gets a target set,
+                // and a closed default would mute it forever with no way to
+                // tell from the UI why the slot went silent.
+                s.enableRamp.reset (1.0f);
                 s.active  = EffectType::Empty;
                 s.desired = EffectType::Empty;
                 s.lastProvidedType = EffectType::Empty;
@@ -216,21 +223,41 @@ namespace VocalFx
                     continue;                       // Empty slot: bit-exact passthrough
 
                 if (paramValues != nullptr)
-                    fx->applyParams (paramValues->forType (s.active));
+                {
+                    const float* v = paramValues->forType (s.active);
+                    fx->applyParams (v);
+
+                    // The effect's OWN On, the way Space Dust has it: a placed
+                    // effect can be muted in place, keeping its slot and its
+                    // settings, instead of having to be dragged back out.
+                    // Ramped rather than switched so the mute is click-free,
+                    // and folded into the same wet gain as the swap fade and
+                    // the slot trim below so the three cannot fight.
+                    if (const int ei = enabledIndex (s.active); ei >= 0)
+                        s.enableRamp.setTarget (v[ei] >= 0.5f ? 1.0f : 0.0f);
+                }
 
                 fx->setPlayHead (playHead);
 
-                // Fully bypassed and staying bypassed — skip the work. Both the
-                // swap fade and the slot's own trim have to be down for that:
-                // either one alone silences the slot, but not permanently.
+                // Fully bypassed and staying bypassed — skip the work. The swap
+                // fade, the slot's own trim and the effect's On all have to be
+                // down for that: any one alone silences the slot, but not
+                // permanently.
                 const bool fadedOut = s.wet.current < kSilentWet && s.wet.target < kSilentWet;
                 const bool trimmedOut = s.amountRamp.current < kSilentWet
                                      && s.amountRamp.target  < kSilentWet;
+                const bool mutedOut = s.enableRamp.current < kSilentWet
+                                   && s.enableRamp.target  < kSilentWet;
 
-                if (fadedOut || trimmedOut)
+                if (fadedOut || trimmedOut || mutedOut)
                 {
                     // Still advance the ramps, or coming back off zero jumps.
-                    for (int i = 0; i < N; ++i) { s.wet.next(); s.amountRamp.next(); }
+                    for (int i = 0; i < N; ++i)
+                    {
+                        s.wet.next();
+                        s.amountRamp.next();
+                        s.enableRamp.next();
+                    }
                     continue;
                 }
 
@@ -243,7 +270,7 @@ namespace VocalFx
 
                 for (int i = 0; i < N; ++i)
                 {
-                    const float w = s.wet.next() * s.amountRamp.next();
+                    const float w = s.wet.next() * s.amountRamp.next() * s.enableRamp.next();
                     for (int c = 0; c < chs; ++c)
                     {
                         float* out = buffer.getWritePointer (c);
@@ -281,6 +308,7 @@ namespace VocalFx
 
             GainRamp   wet;          //!< swap fade: 0 or 1
             GainRamp   amountRamp;   //!< the slot's own trim, from its Amount parameter
+            GainRamp   enableRamp;   //!< the EFFECT's own On, from its "enabled" control
 
             /** Only when audio is guaranteed not running. */
             void freeAllInstances()

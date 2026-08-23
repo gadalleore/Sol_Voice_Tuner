@@ -77,6 +77,14 @@ public:
     /** Marks chromatic key-note `TextButton`s: single-line fitted text + clip (default LnF uses 2 lines and can bleed into neighbours). */
     static constexpr const char* solKeyNoteButtonProperty = "solKeyNote";
 
+    /** Knob scale ticks. Eight intervals puts a major mark at each end and one
+        dead centre, which is where a centred-default control (Formant, Pan)
+        wants to be readable. Below kTickMinRadius they are dropped: at that
+        size the marks merge into a smudged ring and read as dirt. */
+    static constexpr int   kTickCount     = 8;
+    static constexpr float kTickLength    = 0.16f;   //!< fraction of the radius
+    static constexpr float kTickMinRadius = 13.0f;
+
     //--------------------------------------------------------------------------
     /** Brand typeface. A UI sans as of the night-panel pass (2026-08-22) —
         Times New Roman gave the white plate its printed quality, but a serif
@@ -213,6 +221,33 @@ public:
         const float angle = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
         const float stroke = juce::jmax (2.0f, radius * 0.15f);
         const float ar = radius - stroke * 0.5f;
+
+        // Engraved scale ticks outside the track, the way a real instrument
+        // marks its travel — an aircraft gauge, a Diva panel. They are what
+        // make a knob read as calibrated rather than as a bare ring: you can
+        // see roughly where you are without reading the number underneath.
+        // Only when there is room; below that they collapse into a smudge.
+        if (radius >= kTickMinRadius)
+        {
+            const float tr0 = radius + stroke * 0.35f;
+            const float tr1 = tr0 + juce::jmax (2.0f, radius * kTickLength);
+
+            for (int i = 0; i <= kTickCount; ++i)
+            {
+                const float t = (float) i / (float) kTickCount;
+                const float a = rotaryStartAngle + t * (rotaryEndAngle - rotaryStartAngle);
+                const float s = std::sin (a), c = std::cos (a);
+
+                // Ends and centre are major ticks: those are the three places
+                // anyone actually aims for.
+                const bool major = (i == 0 || i == kTickCount || i * 2 == kTickCount);
+
+                g.setColour (juce::Colour (major ? kOutlineHi : kOutline));
+                g.drawLine (cx + s * tr0, cy - c * tr0,
+                            cx + s * (major ? tr1 : tr1 - 1.0f), cy - c * (major ? tr1 : tr1 - 1.0f),
+                            major ? 1.4f : 1.0f);
+            }
+        }
 
         // Recessed full-range track: the socket the value sits in.
         {

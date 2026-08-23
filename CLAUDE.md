@@ -74,6 +74,25 @@ wheels set `allowDuplicates = false` — two Reverbs in one chain would silently
 of controls. Per-slot sets would multiply 110 controls by 25 slots and hand the host a
 parameter list nobody could use. The three chains are independent of each other.
 
+**Every effect has its own On** (`VOCALFX_ENABLED`, appended to all twelve tables on
+2026-08-22), matching Space Dust's `<fx>Enabled`. Before that an effect was on purely because
+it sat in a slot, so the only way to silence one was to drag it back out and lose its
+settings — which is why toggling never behaved the way it does in Space Dust. `EffectChain`
+gates the slot from a ramped `enableRamp` folded into the same wet gain as the swap fade and
+the slot trim, so one place covers all twelve and the mute is click-free. It looks the
+control up by id (`enabledIndex`) rather than at a fixed index, because the tables are
+append-only and every effect's On landed at a different position.
+
+Two deliberate departures from Space Dust, both because the parameter has nothing to do here:
+
+- **No Post** on Trance Gate or Bit Crush. In Space Dust it picks whether the effect runs
+  before or after the synth's fixed chain; the 25 ordered slots already say exactly where.
+- **No Triplet / Triplet-All** on Delay. Rate already sweeps an 18-entry table of straight,
+  dotted *and* triplet divisions, so a triplet toggle would contradict the knob.
+
+`enableRamp` resets OPEN rather than to `GainRamp`'s own default of zero: an effect whose
+table carries no On would otherwise be muted forever with nothing in the UI to explain it.
+
 The slot's **Amount** is the one control that is about the chain rather than the effect: how
 much of that slot is heard, on top of whatever Mix the effect itself has. `EffectChain`
 multiplies it into the same wet gain the swap fade uses, so the two cannot fight.

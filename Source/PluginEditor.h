@@ -24,7 +24,6 @@
 #include "MainPage.h"
 #include "EffectsWindowPage.h"
 #include "HarmoniesWindowPage.h"
-#include "TuningWindowPage.h"
 #include "EdgeMeters.h"
 #include "VolumeArc.h"
 #include "BrandMark.h"
@@ -245,6 +244,9 @@ private:
     /** Back out of the stack entirely — the plate shows the Home wheel again. */
     void showHome();
 
+    /** Resize the shell to whatever the visible page asks for (SizedPage). */
+    void fitShellToPage();
+
     /** Only used when the shell first appears or is re-shown — never while the
         host moves its plugin window. */
     void placeShellNearStub();
@@ -278,7 +280,6 @@ private:
                                        PitchCorrectorAudioProcessor::fxChainOutput,
                                        "Output Global Effects", pageStack };
     HarmoniesWindowPage harmoniesPage { processorRef.getAPVTS(), pageStack };
-    TuningWindowPage    tuningPage    { processorRef, pageStack };
 
     // The 63C-18 MeterSidebar is gone from here (2026-07-31). It was never
     // attached to the floating shell, but it was still CONSTRUCTED, and its

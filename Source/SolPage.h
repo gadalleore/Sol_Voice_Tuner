@@ -26,6 +26,22 @@
 #include "PageStack.h"
 #include "SolLookAndFeel.h"
 
+/** Implemented by a page that wants the WINDOW sized to it.
+
+    Sol's UI is its own desktop window rather than the host's rectangle, so it
+    can change shape without renegotiating anything with the DAW — which makes
+    per-page sizing practical here in a way it is not for an ordinary plugin.
+    A Lo-Fi with two controls and a Trance Gate with twenty-three do not want
+    the same panel.
+
+    Returns the LOGICAL size (the design size the content is laid out at);
+    FloatingShell keeps whatever zoom the user has applied on top of it. */
+struct SizedPage
+{
+    virtual ~SizedPage() = default;
+    virtual juce::Point<int> preferredLogicalSize() const = 0;
+};
+
 class SolPage : public juce::Component
 {
 public:

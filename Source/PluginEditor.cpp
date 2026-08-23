@@ -24,7 +24,6 @@ PitchCorrectorAudioProcessorEditor::PitchCorrectorAudioProcessorEditor (
     // owns Home too: openPage() swaps the plate's content from the wheel to the
     // stack, and back is the reverse (see onPopFromRoot below). Source/HomePage.h
     // is the older full-page Home, kept for the parts not yet rebuilt as panels.
-    harmoniesPage.onOpenTuning = [this] { pageStack.push (tuningPage); };
 
     // Back on the ROOT page means "leave the stack entirely". This fires from
     // inside the back bar's mouse callback, which is why the plate is not
@@ -82,6 +81,11 @@ PitchCorrectorAudioProcessorEditor::PitchCorrectorAudioProcessorEditor (
         repaint();
     };
 
+    // The window follows the page (2026-08-22): a page that implements
+    // SizedPage says how much room it wants, and the shell takes that as its
+    // new design size, keeping whatever zoom is already applied.
+    pageStack.onTopPageChanged = [this] { fitShellToPage(); };
+
     // The root screen. Its three nav destinations are what the Home wheel's
     // three items used to be.
     mainPage.onInputFx   = [this] { openPage (inputFxPage);   };
@@ -137,6 +141,24 @@ void PitchCorrectorAudioProcessorEditor::showHome()
 {
     basePlate.setContent (&mainPage);
     pageStack.clear();
+
+    // Back to the root screen's own size — clear() detaches every page without
+    // firing onTopPageChanged, since there is no new top page to report.
+    shell.setLogicalSize (kShellWidth, kShellHeight);
+}
+
+void PitchCorrectorAudioProcessorEditor::fitShellToPage()
+{
+    auto* top = pageStack.getTopPage();
+
+    // A page with no opinion gets the base size, so leaving one that asked for
+    // something bigger always returns the window rather than stranding it.
+    auto want = juce::Point<int> (kShellWidth, kShellHeight);
+
+    if (auto* sized = dynamic_cast<SizedPage*> (top))
+        want = sized->preferredLogicalSize();
+
+    shell.setLogicalSize (want.x, want.y);
 }
 
 void PitchCorrectorAudioProcessorEditor::paint (juce::Graphics& g)

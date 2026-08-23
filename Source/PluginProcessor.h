@@ -118,6 +118,7 @@ public:
     static constexpr const char* PID_BYPASS       = "bypass";
     static constexpr const char* PID_ROBOTIC    = "robotic";
     static constexpr const char* PID_SUB        = "sub";
+    static constexpr const char* PID_VOC_CARRIER = "vocCarrier";
     static constexpr const char* PID_FORMANT    = "formant";
     static constexpr const char* PID_SCALE      = "scale";
     static constexpr const char* PID_ROOT       = "root";

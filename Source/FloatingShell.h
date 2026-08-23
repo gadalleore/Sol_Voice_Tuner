@@ -70,6 +70,18 @@ public:
         if (w <= 0 || h <= 0)
             return;
 
+        if (w == logicalWidth && h == logicalHeight)
+            return;
+
+        // Carry the user's zoom across the change. Without this, a page that
+        // asks for a different design size would snap the window back to 100%
+        // and throw away however far they had dragged the corner — the resize
+        // would read as the window fighting them rather than accommodating
+        // the page (Giuseppe, 2026-08-22).
+        const float zoom = (logicalWidth > 0 && getWidth() > 0)
+                             ? (float) getWidth() / (float) logicalWidth
+                             : 1.0f;
+
         logicalWidth  = w;
         logicalHeight = h;
 
@@ -79,7 +91,8 @@ public:
         constrainer.setSizeLimits (kMinWidth,  juce::roundToInt (kMinWidth  / aspect),
                                    kMaxWidth,  juce::roundToInt (kMaxWidth  / aspect));
 
-        setSize (w, h);
+        setSize (juce::roundToInt ((float) w * zoom),
+                 juce::roundToInt ((float) h * zoom));
         resized();
     }
 

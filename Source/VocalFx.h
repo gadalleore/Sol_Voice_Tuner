@@ -63,6 +63,12 @@ namespace VocalFx
     public:
         static constexpr int kBands = 6;
 
+        /** What the modulator shapes. Order is the wire format for the
+            carrier parameter — append only. */
+        enum class Carrier { Saw, Square, Triangle, Sine };
+
+        void setCarrier (Carrier c) noexcept { carrier = c; }
+
         void prepare (double sr) noexcept
         {
             sampleRate = juce::jmax (sr, 1.0);
@@ -144,12 +150,48 @@ namespace VocalFx
                 const float g_mix = mix.next();
                 const float mod   = monoModulator[i];
 
-                // --- Band-limited saw carrier ---
+                // --- Band-limited carrier ---
+                //
+                // A vocoder shapes the carrier's HARMONICS, so the waveform
+                // choice is the whole character of the effect: saw and square
+                // are dense and give a full vowel, triangle is hollower, and
+                // sine has one partial and so barely vocodes at all — it is
+                // offered because it is the classic robot-tone, not because it
+                // is a good general carrier.
                 float saw = 0.0f;
                 if (dt > 0.0f)
                 {
-                    float s = 2.0f * phase - 1.0f;
-                    s -= polyBlep (phase, dt);
+                    float s = 0.0f;
+
+                    switch (carrier)
+                    {
+                        case Carrier::Square:
+                            // Two saws a half cycle apart: the difference is a
+                            // square, and each gets its own BLEP so both edges
+                            // are band-limited.
+                            s = (phase < 0.5f ? 1.0f : -1.0f)
+                              - polyBlep (phase, dt)
+                              + polyBlep (std::fmod (phase + 0.5f, 1.0f), dt);
+                            break;
+
+                        case Carrier::Triangle:
+                            // Integrating a square is the cheap band-limited
+                            // triangle; the leaky state below doubles as the
+                            // integrator, so it needs no history of its own.
+                            s = 4.0f * std::abs (phase - 0.5f) - 1.0f;
+                            break;
+
+                        case Carrier::Sine:
+                            s = std::sin (phase * juce::MathConstants<float>::twoPi);
+                            break;
+
+                        case Carrier::Saw:
+                        default:
+                            s = 2.0f * phase - 1.0f;
+                            s -= polyBlep (phase, dt);
+                            break;
+                    }
+
                     sawLpState += sawLpAlpha * (s - sawLpState);
                     saw         = sawLpState;
                     phase += dt;
@@ -247,6 +289,7 @@ namespace VocalFx
         float  overallAtk { 0.1f };
         float  overallRel { 0.0008f };
 
+        Carrier carrier   { Carrier::Saw };
         float  phase      { 0.0f };
         float  sawLpState { 0.0f };
         float  subLpState { 0.0f };

@@ -2,10 +2,16 @@
     HarmoniesWindowPage.h
     ---------------------
     Window 2 of the paging UI (63C-13). The LEAD voice sits in the hub at the
-    centre of the wheel; the harmony voices ring the rim around it. Every voice
-    drills into a settings page: the Lead opens the tuner (onOpenTuning); each
-    harmony opens a VoiceSettingsPage with its pitch wheel + level + pan. Empty
-    rim positions show a "+" to spawn a harmony there.
+    centre of the wheel; the harmony voices ring the rim around it. Each harmony
+    opens a VoiceSettingsPage with its pitch wheel + level + pan. Empty rim
+    positions show a "+" to spawn a harmony there.
+
+    The Lead hub is a landmark, not a button (Giuseppe, 2026-08-22). It used to
+    drill into the legacy tuner, but key, scale, Robotic, Sub, Formant, Bend and
+    the pitch readout are all on the main page in full view now, so the trip
+    only led somewhere you had already been. `TuningWindowPage` and
+    `LegacyTunerPage` are consequently unreachable and no longer built into the
+    editor.
 
     The KEY (root + scale) lives on this page and is global to every voice. The
     scale decides how the pitch wheel's steps read: Chromatic = fixed semitones
@@ -245,7 +251,6 @@ public:
     HarmonyWheel() = default;
 
     std::function<bool (int)> isOn;        // voice enabled?
-    std::function<void()>     onLead;      // centre clicked
     std::function<void (int)> onHarmony;   // occupied rim slot clicked
     std::function<void (int)> onAdd;       // empty rim slot clicked
 
@@ -319,8 +324,7 @@ public:
     void mouseUp (const juce::MouseEvent& e) override
     {
         const int h = hit (e.position);
-        if (h == kLeadHit)   { if (onLead) onLead(); }
-        else if (h >= 0)
+        if (h >= 0)
         {
             if (isOn && isOn (h)) { if (onHarmony) onHarmony (h); }
             else                  { if (onAdd)     onAdd (h);     }
@@ -350,8 +354,14 @@ private:
     int hit (juce::Point<float> p)
     {
         computeGeometry();
-        if (p.getDistanceFrom (centre) <= hubR + 2.0f)
-            return kLeadHit;
+
+        // The LEAD hub is a landmark, not a button (Giuseppe, 2026-08-22). It
+        // used to drill into the legacy tuner, but everything that page held —
+        // key, scale, Robotic, Sub, Formant, Bend, the pitch readout — now sits
+        // on the main page in full view, so the trip was a detour to somewhere
+        // you had already been. It still draws, because the harmonies ring
+        // needs a centre to ring.
+
         for (int i = 0; i < kNumHarmony; ++i)
             if (juce::Rectangle<float> (pillW, pillH).withCentre (slotCentre (i)).expanded (6.0f).contains (p))
                 return i;
@@ -372,7 +382,6 @@ class HarmoniesWindowPage final : public SolPage,
                                   private juce::Timer
 {
 public:
-    std::function<void()> onOpenTuning;   // Lead -> tuner
 
     HarmoniesWindowPage (juce::AudioProcessorValueTreeState& apvtsIn, PageStack& stackToUse)
         : SolPage (stackToUse, "Harmonies"),
@@ -396,7 +405,6 @@ public:
             apvts, PitchCorrectorAudioProcessor::PID_SCALE, scaleBox);
 
         wheel.isOn      = [this] (int v) { return voiceOn (v); };
-        wheel.onLead    = [this]         { if (onOpenTuning) onOpenTuning(); };
         wheel.onHarmony = [this] (int v) { openVoice (v); };
         wheel.onAdd     = [this] (int v) { setEnable (v, true); openVoice (v); };
         addAndMakeVisible (wheel);

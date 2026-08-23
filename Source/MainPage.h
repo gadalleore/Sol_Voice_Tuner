@@ -34,6 +34,7 @@
 #include "PluginProcessor.h"
 #include "ScaleQuantizer.h"
 #include "SolIcons.h"
+#include "SolPanel.h"
 #include "SolLookAndFeel.h"
 
 class MainPage final : public juce::Component
@@ -75,6 +76,18 @@ public:
         addAndMakeVisible (midiBtn);
         midiAtt = std::make_unique<BAtt> (apvts, PitchCorrectorAudioProcessor::PID_MIDI_FOLLOW, midiBtn);
 
+        // ---- Vocoder carrier ---------------------------------------------
+        // Sits with SUB because SUB *is* the vocoder's depth: the effect is
+        // a six-band channel vocoder whose carrier this picks. Separating
+        // them would hide that one knob is the amount of the other.
+        styleCaption (carrierLbl, "CARRIER");
+        carrierLbl.setJustificationType (juce::Justification::centred);
+        carrierBox.addItemList ({ "Saw", "Square", "Triangle", "Sine" }, 1);
+        addAndMakeVisible (carrierBox);
+        carrierAtt = std::make_unique<CAtt> (apvts,
+                                             PitchCorrectorAudioProcessor::PID_VOC_CARRIER,
+                                             carrierBox);
+
         // ---- Knobs -------------------------------------------------------
         addKnob (roboticKnob, roboticLbl, "ROBOTIC",
                  PitchCorrectorAudioProcessor::PID_ROBOTIC, roboticAtt, true);
@@ -111,14 +124,18 @@ public:
     {
         g.fillAll (juce::Colour (SolLookAndFeel::kBackground));
 
-        // The ribbon is the one recessed element: a well for the display to
-        // sit in, so it reads as a screen set into the panel rather than as
-        // ink floating on it.
-        const auto well = ribbon.getBounds().toFloat().expanded (6.0f, 5.0f);
-        g.setColour (juce::Colour (SolLookAndFeel::kPanel));
-        g.fillRoundedRectangle (well, 5.0f);
-        g.setColour (juce::Colour (SolLookAndFeel::kOutline));
-        g.drawRoundedRectangle (well.reduced (0.5f), 5.0f, 1.0f);
+        // The display sits in a bolted plate, and the control banks below each
+        // get one of their own, so the page reads as hardware assembled from
+        // parts rather than as regions of one flat surface.
+        //
+        // All three share ONE column (see resized): they used to be derived
+        // from their own contents' bounds, which had each already been inset by
+        // a different amount, so the plates ended up a few pixels wider or
+        // narrower than each other. Stacked vertically that misalignment is the
+        // most visible thing on the page — plates in a rack line up.
+        if (! ribbonPlate.isEmpty()) SolPanel::draw (g, ribbonPlate.toFloat());
+        if (! keyPlate.isEmpty())    SolPanel::draw (g, keyPlate.toFloat(),  false);
+        if (! knobPlate.isEmpty())   SolPanel::draw (g, knobPlate.toFloat(), false);
     }
 
     void resized() override
@@ -130,14 +147,28 @@ public:
         r.removeFromTop (2);
         bypassBtn.setBounds (r.removeFromTop (kHeaderH).removeFromLeft (86));
 
+        // One column every plate is cut from, so their edges cannot disagree.
+        const int plateX = r.getX() - kPlateBleed;
+        const int plateW = r.getWidth() + kPlateBleed * 2;
+        const auto plateRow = [plateX, plateW] (juce::Rectangle<int> row, int grow)
+        {
+            return juce::Rectangle<int> (plateX, row.getY() - grow,
+                                         plateW, row.getHeight() + grow * 2);
+        };
+
         r.removeFromTop (kGap);
-        ribbon.setBounds (r.removeFromTop (kRibbonH).reduced (6, 5));
+        {
+            auto row = r.removeFromTop (kRibbonH);
+            ribbonPlate = plateRow (row, 2);
+            ribbon.setBounds (row.reduced (10, 8));
+        }
 
         r.removeFromTop (kGap + 4);
 
         // ---- Key block | Scale block -------------------------------------
         {
             auto row = r.removeFromTop (kKeyRowH);
+            keyPlate = plateRow (row, 2);
 
             auto keyBlock = row.removeFromLeft (kKeyBlockW);
             keyLbl.setBounds (keyBlock.removeFromTop (kCaptionH));
@@ -172,6 +203,16 @@ public:
         // ---- Knob row -----------------------------------------------------
         {
             auto row = r.removeFromTop (kKnobRowH);
+            knobPlate = plateRow (row, 2);
+
+            // The carrier picker takes the right of the bank, directly beside
+            // SUB — the knob whose depth it colours.
+            {
+                auto carrierCell = row.removeFromRight (kCarrierW);
+                carrierLbl.setBounds (carrierCell.removeFromTop (kCaptionH));
+                carrierBox.setBounds (carrierCell.removeFromTop (26).reduced (6, 0));
+            }
+
             juce::Slider* knobs[] { &roboticKnob, &subKnob, &formantKnob, &bendKnob };
             juce::Label*  labels[] { &roboticLbl, &subLbl, &formantLbl, &bendLbl };
 
@@ -273,6 +314,11 @@ private:
     // Layout. One inset, one gap; everything else is derived.
     static constexpr int kInset      = 16;
     static constexpr int kGap        = 8;
+
+    /** How far every plate oversails the content column. One number, shared,
+        because plates stacked in a rack have to line up. */
+    static constexpr int kPlateBleed = 6;
+    static constexpr int kCarrierW   = 92;
     // Budgeted against the content area LESS the spectrum footer the plate
     // draws over the bottom of it: the rows have to fit in what is left, or
     // the nav strip ends up under the analyser.
@@ -295,14 +341,17 @@ private:
 
     PitchRibbon ribbon;
 
+    /** Where the control banks sit, so paint() can put a plate behind each. */
+    juce::Rectangle<int> ribbonPlate, keyPlate, knobPlate;
+
     IconButton bypassBtn { "Bypass", SolIcons::power(), true };
     IconButton midiBtn   { "MIDI",   SolIcons::midi(),  true };
     std::unique_ptr<BAtt> bypassAtt, midiAtt;
 
-    juce::Label      keyLbl, scaleLbl;
+    juce::Label      keyLbl, scaleLbl, carrierLbl;
     std::array<juce::TextButton, 12> keyBtns;
-    juce::ComboBox   scaleBox;
-    std::unique_ptr<CAtt> scaleAtt;
+    juce::ComboBox   scaleBox, carrierBox;
+    std::unique_ptr<CAtt> scaleAtt, carrierAtt;
     int litKey = -1;
 
     juce::Slider roboticKnob, subKnob, formantKnob, bendKnob;

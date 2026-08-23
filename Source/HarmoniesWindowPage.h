@@ -29,6 +29,7 @@
 #include "SolLookAndFeel.h"
 
 #include "SolPage.h"
+#include "SolPanel.h"
 #include "PluginProcessor.h"
 #include "ScaleQuantizer.h"
 
@@ -379,9 +380,19 @@ private:
 
 //==============================================================================
 class HarmoniesWindowPage final : public SolPage,
+                                  public  SizedPage,
                                   private juce::Timer
 {
 public:
+    /** Narrower than the main page. The content is a CIRCLE — the harmony ring
+        — plus one row of key/scale controls, and a circle only ever needs a
+        square's worth of room: at the main page's width the ring sat marooned
+        with empty plate either side. Height is unchanged, since that is what
+        sets the ring's diameter (Giuseppe, 2026-08-23). */
+    juce::Point<int> preferredLogicalSize() const override
+    {
+        return { kLogicalW, kLogicalH };
+    }
 
     HarmoniesWindowPage (juce::AudioProcessorValueTreeState& apvtsIn, PageStack& stackToUse)
         : SolPage (stackToUse, "Harmonies"),
@@ -417,11 +428,33 @@ public:
 private:
     void layoutContent (juce::Rectangle<int> area) override
     {
+        // Keep clear of the plate's right-hand column — volume, mono, meters
+        // and the mark are drawn over whatever page is showing.
+        area = area.withTrimmedRight (kRightColumn);
+
+        // One column both plates are cut from, so their edges cannot disagree
+        // (same rule as MainPage).
+        const int plateX = area.getX() - kPlateBleed;
+        const int plateW = area.getWidth() + kPlateBleed * 2;
+
         auto top = area.removeFromTop (34);
+        keyPlate = { plateX, top.getY() - 3, plateW, top.getHeight() + 6 };
+
         keyLbl.setBounds   (top.removeFromLeft (34));
         rootBox.setBounds  (top.removeFromLeft (70).reduced (2));
         scaleBox.setBounds (top.removeFromLeft (juce::jmin (220, top.getWidth())).reduced (2));
+
+        area.removeFromTop (10);
+        wheelPlate = { plateX, area.getY(), plateW, area.getHeight() };
         wheel.setBounds (area);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        SolPage::paint (g);
+
+        if (! keyPlate.isEmpty())   SolPanel::draw (g, keyPlate.toFloat(), false);
+        if (! wheelPlate.isEmpty()) SolPanel::draw (g, wheelPlate.toFloat());
     }
 
     void timerCallback() override { wheel.repaint(); }
@@ -454,6 +487,14 @@ private:
     juce::Label    keyLbl;
     juce::ComboBox rootBox, scaleBox;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> rootAtt, scaleAtt;
+
+    /** Where the plates sit, so paint() can put a surface behind each. */
+    juce::Rectangle<int> keyPlate, wheelPlate;
+
+    static constexpr int kRightColumn = 110;
+    static constexpr int kPlateBleed  = 6;
+    static constexpr int kLogicalW    = 600;
+    static constexpr int kLogicalH    = 450;
 
     HarmonyWheel      wheel;
     VoiceSettingsPage voicePage;

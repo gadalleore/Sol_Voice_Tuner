@@ -21,6 +21,7 @@
 #include "EffectDetailPage.h"
 #include "PluginProcessor.h"
 #include "SolPage.h"
+#include "SolPanel.h"
 #include "WheelComponent.h"
 
 class EffectsWindowPage final : public SolPage,
@@ -66,7 +67,22 @@ public:
 private:
     void layoutContent (juce::Rectangle<int> area) override
     {
+        // Clear of the plate's right-hand column, like every other page.
+        area = area.withTrimmedRight (kRightColumn);
+
+        wheelPlate = area.expanded (kPlateBleed, 2);
         wheel.setBounds (area);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        SolPage::paint (g);
+
+        // One plate under the whole chain. The wheel is a single object — the
+        // palette and the rim are two halves of one gesture — so splitting it
+        // across several plates would imply a division that is not there.
+        if (! wheelPlate.isEmpty())
+            SolPanel::draw (g, wheelPlate.toFloat());
     }
 
     void timerCallback() override { wheel.repaint(); }
@@ -112,6 +128,11 @@ private:
 
     juce::AudioProcessorValueTreeState& apvts;
     const int chainIndex;
+
+    static constexpr int kRightColumn = 110;
+    static constexpr int kPlateBleed  = 6;
+
+    juce::Rectangle<int> wheelPlate;
 
     WheelComponent   wheel;
     EffectDetailPage detailPage;

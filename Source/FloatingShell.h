@@ -82,15 +82,19 @@ public:
         if (w == logicalWidth && h == logicalHeight)
             return;
 
-        // Carry the user's zoom across the change. Without this, a page that
-        // asks for a different design size would snap the window back to 100%
-        // and throw away however far they had dragged the corner — the resize
-        // would read as the window fighting them rather than accommodating
-        // the page (Giuseppe, 2026-08-22).
-        const float zoom = (logicalWidth > 0 && getWidth() > 0)
-                             ? (float) getWidth() / (float) logicalWidth
-                             : 1.0f;
-
+        // The user's zoom is carried across the change, so a page asking for a
+        // different design size does not throw away however far they had
+        // dragged the corner (Giuseppe, 2026-08-22).
+        //
+        // It is READ here, never derived (Giuseppe, 2026-08-23). This used to
+        // compute it as getWidth() / logicalWidth at the moment of the call —
+        // but mid-glide getWidth() is a half-travelled transient, so that
+        // yielded a scale the user never chose, which then became the basis
+        // for the next change, and the next. Selecting an effect calls this
+        // TWICE within a few hundred milliseconds — retract, then deploy — so
+        // the error compounded on every click and the whole interface visibly
+        // grew or shrank as you browsed the chain. resized() owns userZoom now,
+        // and only an actual corner-drag moves it.
         logicalWidth  = w;
         logicalHeight = h;
 
@@ -107,8 +111,8 @@ public:
         // content's scale-to-fit transform carries it along. A window that
         // jumps between shapes reads as a glitch; one that travels reads as
         // the panel making room.
-        targetW = juce::roundToInt ((float) w * zoom);
-        targetH = juce::roundToInt ((float) h * zoom);
+        targetW = juce::roundToInt ((float) w * userZoom);
+        targetH = juce::roundToInt ((float) h * userZoom);
 
         if (! isOnDesktop())
         {
@@ -172,6 +176,21 @@ public:
 
     void resized() override
     {
+        // A size we did not ask for is the user dragging the corner — and that
+        // is the ONLY thing that sets the zoom (Giuseppe, 2026-08-23).
+        //
+        // Rescaling the window and the window resizing itself for a page are
+        // two different things, and they have to stay that way: pick a scale
+        // and it is yours until you pick another one, whatever the pages do
+        // underneath it.
+        if (! isTimerRunning() && logicalWidth > 0 && getWidth() > 0
+            && (getWidth() != targetW || getHeight() != targetH))
+        {
+            userZoom = (float) getWidth() / (float) logicalWidth;
+            targetW  = getWidth();
+            targetH  = getHeight();
+        }
+
         if (content != nullptr)
         {
             if (logicalWidth > 0 && logicalHeight > 0)
@@ -280,6 +299,11 @@ private:
     static constexpr float kResizeEase = 0.28f;   //!< per frame
 
     int targetW = 0, targetH = 0;
+
+    /** How far the user has scaled the window, as a multiple of the current
+        page's logical size. Set ONLY by a corner-drag (see resized()); every
+        page-driven resize multiplies by it and leaves it alone. */
+    float userZoom = 1.0f;
 
     /** Makes a whole subtree refuse the keyboard, which is what keeps the
         host's transport alive.

@@ -195,6 +195,15 @@ private:
             inMeter .setLevel (chain.getMeteredInLevel());
             outMeter.setLevel (chain.getMeteredOutLevel());
         }
+
+        // Backstop for leg two. The shell reports a settle for every animated
+        // resize, but it does NOT animate when the size it is asked for is the
+        // one it already has, or when the editor is off the desktop — and a
+        // selection stuck half-made, with the panel retracted and nothing
+        // deployed, is the worst outcome available here. If the settle has not
+        // arrived by now, take the second leg anyway.
+        if (pendingSlot >= 0 && ++pendingTicks > kPendingTimeoutTicks)
+            windowSettled();
     }
 
     int typeIndex (int slot) const
@@ -216,11 +225,69 @@ private:
         }
     }
 
+    /** Selecting an effect happens in TWO legs: the panel RETRACTS to the bare
+        ring, and only then opens out to what the new effect needs (Giuseppe,
+        2026-08-23).
+
+        Morphing straight from one effect's panel to the next was a single
+        ambiguous slide — the window got wider or narrower for no reason you
+        could see, and the controls under it changed at some unrelated moment.
+        Closing first makes the two facts separate and legible: THAT one is put
+        away, THIS one is brought out. It is also the honest mechanical
+        reading, which is the whole language of this UI — a panel does not
+        become a different panel, it stows and another deploys.
+
+        Leg two is fired by the shell's onResizeSettled, through
+        windowSettled() below. */
     void openDetail (int slot)
     {
         const int type = typeIndex (slot);
         if (type == (int) VocalFx::EffectType::Empty)
             return;
+
+        // Already showing this one: nothing to stage. Retracting and
+        // redeploying the same panel is a flash with no information in it.
+        if (slot == shownSlot && detailPage.hasEffect())
+            return;
+
+        if (detailPage.hasEffect())
+        {
+            pendingSlot  = slot;
+            pendingTicks = 0;
+            shownSlot    = -1;
+
+            detailPage.clearEffect();   // -> onSizeChanged -> the window retracts
+            return;
+        }
+
+        showSlot (slot);
+    }
+
+public:
+    /** Leg two: the retraction has finished, so deploy what was asked for.
+
+        Wired to FloatingShell::onResizeSettled by the editor. A no-op when
+        nothing is pending, so the editor can call it on every effects page
+        without knowing which one is on screen. */
+    void windowSettled()
+    {
+        if (pendingSlot < 0)
+            return;
+
+        const int slot = pendingSlot;
+        pendingSlot = -1;
+
+        showSlot (slot);
+    }
+
+private:
+    void showSlot (int slot)
+    {
+        const int type = typeIndex (slot);
+        if (type == (int) VocalFx::EffectType::Empty)
+            return;
+
+        shownSlot = slot;
 
         const auto fxType = (VocalFx::EffectType) type;
 
@@ -272,7 +339,18 @@ private:
     static constexpr int kMaxW  = 1180, kMaxH = 660;
     static constexpr int kPlateBleed  = 6;
 
+    /** At the page's 15 Hz tick: ~0.6 s, comfortably longer than a retraction
+        (the shell eases 28% a frame at 60 fps, so it arrives in about a third
+        of a second) and short enough not to read as a hang if it is needed. */
+    static constexpr int kPendingTimeoutTicks = 9;
+
     juce::Rectangle<int> wheelPlate;
+
+    /** Which slot the inspector is showing, and which one it is retracting in
+        order to show. -1 for neither. */
+    int shownSlot   = -1;
+    int pendingSlot = -1;
+    int pendingTicks = 0;
 
     WheelComponent   wheel;
     EffectDetailPage detailPage;

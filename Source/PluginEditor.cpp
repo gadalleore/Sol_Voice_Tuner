@@ -91,6 +91,16 @@ PitchCorrectorAudioProcessorEditor::PitchCorrectorAudioProcessorEditor (
     inputFxPage.onSizeWanted  = [this] { fitShellToPage(); };
     outputFxPage.onSizeWanted = [this] { fitShellToPage(); };
 
+    // Choosing an effect moves the window in two legs — the panel retracts to
+    // the bare ring, then opens out at the new effect's size — and the second
+    // leg starts when the first ARRIVES. Both pages are told; the one that
+    // isn't mid-selection ignores it.
+    shell.onResizeSettled = [this]
+    {
+        inputFxPage .windowSettled();
+        outputFxPage.windowSettled();
+    };
+
     mainPage.onInputFx   = [this] { openPage (inputFxPage);   };
     mainPage.onHarmonies = [this] { openPage (harmoniesPage); };
     mainPage.onOutputFx  = [this] { openPage (outputFxPage);  };

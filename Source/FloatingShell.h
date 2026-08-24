@@ -66,6 +66,14 @@ public:
 
         The size limits are re-derived along the same ratio, so no limit can
         ever demand a shape the aspect lock forbids. */
+    /** Fired when an animated resize reaches its target.
+
+        For callers staging a size change in more than one leg — the effects
+        page retracts to the bare ring, then opens out to whatever the effect
+        it just selected needs, and the second leg must not start until the
+        first has arrived or the two read as one muddled morph. */
+    std::function<void()> onResizeSettled;
+
     void setLogicalSize (int w, int h)
     {
         if (w <= 0 || h <= 0)
@@ -255,6 +263,12 @@ private:
             stopTimer();
             setSize (targetW, targetH);
             resized();
+
+            // After stopTimer(), so a listener is free to start the next leg
+            // from inside it.
+            if (onResizeSettled != nullptr)
+                onResizeSettled();
+
             return;
         }
 

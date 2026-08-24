@@ -209,7 +209,11 @@ namespace VocalFx
 
     inline constexpr EffectParam kPhaserParams[] =
     {
-        { "rate",     "Rate",     ParamKind::Knob,   0.05f, 200.0f, 1.0f, 0.01f, 0.35f, 0.0f, nullptr, " Hz" },
+        // Rate reaches ZERO (Giuseppe, 2026-08-23). At 0 Hz the sweep parks and
+        // the phaser becomes a fixed comb filter at whatever Center says —
+        // which is a sound people want and reach for, and the old 0.05 Hz floor
+        // only offered a twenty-second cycle that is neither still nor moving.
+        { "rate",     "Rate",     ParamKind::Knob,   0.0f, 200.0f, 1.0f, 0.01f, 0.35f, 0.0f, nullptr, " Hz" },
         { "depth",    "Depth",    ParamKind::Knob,   0.0f, 1.0f, 0.7f },
         { "feedback", "Feedback", ParamKind::Knob,  -1.0f, 1.0f, 0.0f },
         { "script",   "Script",   ParamKind::Toggle, 0.0f, 1.0f, 1.0f },

@@ -105,6 +105,19 @@ namespace VocalFx
             need not supply a playhead, and every effect must still sound. */
         virtual void setPlayHead (juce::AudioPlayHead*) noexcept {}
 
+        /** One number this effect wants its panel to be able to SHOW, 0..1, or
+            a negative value for "nothing to show" (the default).
+
+            For the Phaser it is where the sweep currently is, so the panel can
+            draw the notches moving. It has to come from the DSP rather than
+            from a copy of the LFO in the UI: a second oscillator started at a
+            different moment would look convincing and be describing a sweep
+            that is not the one you are hearing.
+
+            Read on the audio thread only, in EffectChain::process, which
+            publishes it to an atomic the way it does the meters. */
+        virtual float displayValue() const noexcept { return -1.0f; }
+
         /** Set by the factory; lets the audio thread identify a handed-off
             instance without any further synchronisation. */
         EffectType typeTag { EffectType::Empty };

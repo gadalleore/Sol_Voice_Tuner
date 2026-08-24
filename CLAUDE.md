@@ -42,7 +42,12 @@ Run it with `build-and-launch.ps1` (add `-Reconfigure` after touching CMakeLists
 after moving the folder). It builds the VST3, copies it to every VST3 path on the machine,
 and launches Ableton.
 
-**Always finish a change by running that script** (`-NoLaunch` if Ableton is not wanted).
+**Always finish a change by running that script, and let it launch Ableton**
+(Giuseppe, 2026-08-23). Not `-NoLaunch`: the standalone has no audio running
+through it, so a change to anything that touches sound cannot be judged there —
+the meters sit at zero, the Phaser's sweep never moves, and an effect that has
+gone silent looks exactly like one that is working. Deploy and open the host, so
+the change can actually be heard.
 A plain `cmake --build` leaves the installed VST3 on the previous build, and Giuseppe tests
 in Ableton — a change that is not in `C:\Program Files\Common Files\VST3\63C\` and the three
 other roots has not been delivered.

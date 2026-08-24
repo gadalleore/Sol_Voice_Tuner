@@ -131,6 +131,11 @@ void SpaceDustPhaser::process(juce::AudioBuffer<float>& buffer)
         const float lfoL = lfoValue(lfoPhaseL_, params_.vintageMode);
         const float lfoR = lfoValue(phaseR, params_.vintageMode);
 
+        // Publish where the sweep is, for the panel to draw. The SAME number
+        // the coefficients are built from on the next line, so what is drawn
+        // and what is heard cannot disagree (Giuseppe, 2026-08-23).
+        sweepPosition_.store(lfoL, std::memory_order_relaxed);
+
         // Update all-pass coefficients for both channels (different LFO = stereo width)
         updateAllPassCoefficients(0, lfoL, depth, centre);
         updateAllPassCoefficients(1, lfoR, depth, centre);

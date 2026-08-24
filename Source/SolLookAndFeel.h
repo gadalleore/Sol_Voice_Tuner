@@ -85,6 +85,10 @@ public:
     static constexpr float kTickLength    = 0.16f;   //!< fraction of the radius
     static constexpr float kTickMinRadius = 13.0f;
 
+    /** Width-to-height of a captionless toggle's track. Wide enough that the
+        thrown end is obviously at one end or the other. */
+    static constexpr float kSwitchAspect = 1.85f;
+
     //--------------------------------------------------------------------------
     /** Brand typeface. A UI sans as of the night-panel pass (2026-08-22) —
         Times New Roman gave the white plate its printed quality, but a serif
@@ -354,30 +358,53 @@ public:
     {
         const bool on = button.getToggleState();
 
-        // No text (EffectDetailPage's per-effect toggles: a bare 24x24 tick
-        // box, no caption of its own — a Label sits beside it instead): a
-        // word-block has nothing to draw, so this is its own small control —
-        // a square that is either just an outline or filled ink, same
-        // "nothing draws what isn't there" spirit as everywhere else.
+        // No text (EffectDetailPage's per-effect toggles: no caption of its
+        // own — a Label sits beside it instead). A SWITCH, not a tick box
+        // (Giuseppe, 2026-08-23).
+        //
+        // It was a square that filled with ink when on, which is a checkbox,
+        // and a checkbox is a statement about a FORM — it says "this option is
+        // ticked". Nothing on this panel is a form. Sync, Ping-Pong, Vintage,
+        // Filter are switches on a machine, and a switch says which way it is
+        // thrown by WHERE IT IS, not by whether it is filled: you can read it
+        // from across the room, at a glance, without comparing it to its
+        // neighbours.
         if (button.getButtonText().isEmpty())
         {
-            const auto box = button.getLocalBounds().toFloat().reduced (2.0f);
-            const float a  = button.isEnabled() ? 1.0f : 0.4f;
+            const float a = button.isEnabled() ? 1.0f : 0.4f;
+
+            // The track. Keeps a switch's proportions whatever box it is given.
+            auto r = button.getLocalBounds().toFloat().reduced (1.0f);
+            const float h = juce::jmin (r.getHeight(), r.getWidth() * 0.56f);
+            const auto track = r.withSizeKeepingCentre (h * kSwitchAspect, h);
+            const float rad = track.getHeight() * 0.5f;
+
+            g.setColour (juce::Colour (on ? kAccentArc : kPanel).withAlpha (a));
+            g.fillRoundedRectangle (track, rad);
 
             if (on)
             {
-                g.setColour (juce::Colour (kAccentGlow).withAlpha (0.20f * a));
-                g.fillRoundedRectangle (box.expanded (2.5f), 4.0f);
+                g.setColour (juce::Colour (kAccentGlow).withAlpha (0.22f * a));
+                g.fillRoundedRectangle (track.expanded (2.5f), rad + 2.5f);
                 g.setColour (juce::Colour (kAccentArc).withAlpha (a));
-                g.fillRoundedRectangle (box, 2.5f);
+                g.fillRoundedRectangle (track, rad);
             }
-            else
-            {
-                g.setColour (juce::Colour (kPanel).withAlpha (a));
-                g.fillRoundedRectangle (box, 2.5f);
-                g.setColour (juce::Colour (highlighted ? kOutlineHi : kOutline).withAlpha (a));
-                g.drawRoundedRectangle (box.reduced (0.5f), 2.5f, 1.2f);
-            }
+
+            g.setColour (juce::Colour (highlighted ? kOutlineHi : kOutline).withAlpha (a));
+            g.drawRoundedRectangle (track.reduced (0.5f), rad, 1.0f);
+
+            // The thrown end. Dark on the lit track, light on the dark one, so
+            // it reads against its own ground either way.
+            const float inset = track.getHeight() * 0.14f;
+            const float knobD = track.getHeight() - inset * 2.0f;
+
+            const auto knob = juce::Rectangle<float> (knobD, knobD)
+                                  .withPosition (on ? track.getRight() - knobD - inset
+                                                    : track.getX() + inset,
+                                                 track.getY() + inset);
+
+            g.setColour (juce::Colour (on ? kBackground : kOutlineHi).withAlpha (a));
+            g.fillEllipse (knob);
             return;
         }
 

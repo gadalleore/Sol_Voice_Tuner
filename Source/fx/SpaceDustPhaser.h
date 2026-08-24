@@ -2,6 +2,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
+#include <atomic>
 
 //==============================================================================
 /**
@@ -45,6 +46,10 @@ public:
 
     SpaceDustPhaser() = default;
 
+    /** Where the sweep is right now, 0..1 across its range. Written by the
+        audio thread every sample, read by the panel. See PhaserView. */
+    float sweepPosition() const noexcept { return sweepPosition_.load(std::memory_order_relaxed); }
+
     void prepare(const juce::dsp::ProcessSpec& spec);
     void reset();
     void setParameters(const Parameters& p);
@@ -86,6 +91,10 @@ private:
 
     static constexpr int kMaxStages = 6;
     std::array<std::array<FirstOrderAllPass, kMaxStages>, 2> allPass_;  // [0]=L, [1]=R
+
+    /** 0..1 through the sweep, published each sample for the panel to read.
+        See PhaserView. */
+    std::atomic<float> sweepPosition_{0.0f};
 
     float lfoPhaseL_{0.0f};
     float prevWetL_{0.0f};

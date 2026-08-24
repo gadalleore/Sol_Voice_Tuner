@@ -107,7 +107,7 @@ protected:
     static constexpr int kBackWidth   = 62;
     static constexpr int kBackHeight  = 26;
 
-    static constexpr float kTitleHeight = 22.0f;
+    static constexpr float kTitleHeight = 27.0f;
 
     static constexpr int kCaptionHeight = 22;
 
@@ -208,7 +208,14 @@ private:
             if (r.getWidth() < 60.0f || r.getHeight() < 10.0f)
                 return;
 
-            const auto ink = juce::Colour (SolLookAndFeel::kAccentCool);
+            // Amber, not cyan (Giuseppe, 2026-08-23). Cyan is reserved for
+            // LIVE SIGNAL — the goniometer trace, the meters — and this is not
+            // a live reading, it is signage: a permanent mark on the machine
+            // saying which way the audio runs. Signage on this panel is amber
+            // and black, the same family as the hazard notices, and a marker
+            // in the live-signal colour that never moves reads as a meter that
+            // is broken.
+            const auto ink = juce::Colour (SolLookAndFeel::kAccentArc);
 
             g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface,
                                                       11.0f, juce::Font::bold)));

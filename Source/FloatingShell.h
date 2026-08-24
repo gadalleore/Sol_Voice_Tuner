@@ -79,8 +79,8 @@ public:
         if (w <= 0 || h <= 0)
             return;
 
-        if (w == logicalWidth && h == logicalHeight)
-            return;
+        if (w == toLogicalW && h == toLogicalH)
+            return;                      // already going there
 
         // The user's zoom is carried across the change, so a page asking for a
         // different design size does not throw away however far they had
@@ -95,8 +95,8 @@ public:
         // the error compounded on every click and the whole interface visibly
         // grew or shrank as you browsed the chain. resized() owns userZoom now,
         // and only an actual corner-drag moves it.
-        logicalWidth  = w;
-        logicalHeight = h;
+        toLogicalW = w;
+        toLogicalH = h;
 
         const double aspect = (double) w / (double) h;
 
@@ -104,22 +104,41 @@ public:
         constrainer.setSizeLimits (kMinWidth,  juce::roundToInt (kMinWidth  / aspect),
                                    kMaxWidth,  juce::roundToInt (kMaxWidth  / aspect));
 
-        // Glide to the new size rather than snapping to it (2026-08-23).
-        //
-        // The logical size changes NOW, so the page lays out correctly from
-        // the first frame; only the window's outer size is eased, and the
-        // content's scale-to-fit transform carries it along. A window that
-        // jumps between shapes reads as a glitch; one that travels reads as
-        // the panel making room.
         targetW = juce::roundToInt ((float) w * userZoom);
         targetH = juce::roundToInt ((float) h * userZoom);
 
-        if (! isOnDesktop())
+        if (! isOnDesktop() || logicalWidth <= 0)
         {
-            setSize (targetW, targetH);   // not visible yet: nothing to animate
+            // Not visible yet, or no previous size to travel FROM: nothing to
+            // animate, so land on it.
+            logicalWidth  = w;
+            logicalHeight = h;
+            setSize (targetW, targetH);
             resized();
             return;
         }
+
+        // Travel, don't jump — and travel the LOGICAL size with the window
+        // (Giuseppe, 2026-08-23).
+        //
+        // This used to change the logical size instantly and ease only the
+        // window's outer size, which is the bigger half of why a resize
+        // "popped": the page reflowed to the new design size on frame one
+        // while the window was still the old size, so the scale-to-fit
+        // transform spiked. Retracting from a 1656px effect panel laid the
+        // page out at 620 logical inside a 1656px window — 2.7x instead of
+        // 1.4x — and the whole interface ballooned before shrinking back.
+        //
+        // Easing both together with the same curve keeps getWidth() /
+        // logicalWidth pinned to userZoom for every frame of the travel, so
+        // nothing scales at all: the window simply grows or shrinks and the
+        // page re-lays out inside it, which is what a resize actually looks
+        // like.
+        fromLogicalW = logicalWidth;
+        fromLogicalH = logicalHeight;
+        fromW        = getWidth();
+        fromH        = getHeight();
+        glide        = 0.0f;
 
         startTimerHz (kResizeFps);
     }
@@ -267,19 +286,43 @@ public:
     }
 
 private:
-    /** Eases the window's outer size toward the target one frame at a time.
+    /** Smootherstep: 0 at 0, 1 at 1, with zero FIRST AND SECOND derivative at
+        both ends.
 
-        Exponential rather than linear: it leaves fast and arrives slowly,
-        which is what makes a size change feel like it SETTLES instead of
-        stopping dead. Snapped and stopped inside a pixel, or the timer would
-        run forever chasing a fraction. */
+        The zero second derivative is the whole point. An exponential chase —
+        what this used to do — leaves at full speed and decays toward the
+        target: there is no acceleration at all, the movement simply begins,
+        which is exactly the "pop" (Giuseppe, 2026-08-23). Ordinary smoothstep
+        fixes the speed but still starts and stops with a jerk, because
+        acceleration jumps from nothing to something in one frame. Smootherstep
+        eases the acceleration in too, so the window is never seen to start or
+        stop — it is only ever already moving or already still. A maglev. */
+    static float smootherstep (float t) noexcept
+    {
+        t = juce::jlimit (0.0f, 1.0f, t);
+        return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
+    }
+
+    /** Carries the window AND the logical size along one shared curve, so the
+        scale between them never moves. Fixed duration rather than a per-frame
+        fraction: a curve needs to know how far through it is, which a chase
+        never does. */
     void timerCallback() override
     {
-        const int w = getWidth(), h = getHeight();
+        glide += 1.0f / (kResizeSeconds * (float) kResizeFps);
 
-        if (std::abs (targetW - w) <= 1 && std::abs (targetH - h) <= 1)
+        const bool  done = glide >= 1.0f;
+        const float t    = smootherstep (glide);
+
+        logicalWidth  = lerp (fromLogicalW, toLogicalW, t);
+        logicalHeight = lerp (fromLogicalH, toLogicalH, t);
+
+        if (done)
         {
             stopTimer();
+
+            logicalWidth  = toLogicalW;
+            logicalHeight = toLogicalH;
             setSize (targetW, targetH);
             resized();
 
@@ -291,14 +334,37 @@ private:
             return;
         }
 
-        setSize (w + juce::roundToInt ((float) (targetW - w) * kResizeEase),
-                 h + juce::roundToInt ((float) (targetH - h) * kResizeEase));
+        // setSize triggers resized(), which re-lays the page out at the
+        // interpolated logical size and rescales it by the interpolated window
+        // size — the two cancel, and userZoom holds.
+        setSize (lerp (fromW, targetW, t), lerp (fromH, targetH, t));
     }
 
-    static constexpr int   kResizeFps  = 60;
-    static constexpr float kResizeEase = 0.28f;   //!< per frame
+    static int lerp (int from, int to, float t) noexcept
+    {
+        return from + juce::roundToInt ((float) (to - from) * t);
+    }
 
+    static constexpr int kResizeFps = 60;
+
+    /** How long one size change takes. Long enough to read as travel rather
+        than as a jump, short enough not to make you wait for the panel — and
+        selecting an effect spends two of these back to back, retracting then
+        deploying, so it buys the whole gesture about three quarters of a
+        second. */
+    static constexpr float kResizeSeconds = 0.34f;
+
+    /** Where the glide is going, in window pixels, and where it started. */
     int targetW = 0, targetH = 0;
+    int fromW   = 0, fromH   = 0;
+
+    /** The same journey in logical pixels. Eased on the identical curve, which
+        is what keeps the content's scale pinned while the window travels. */
+    int fromLogicalW = 0, fromLogicalH = 0;
+    int toLogicalW   = 0, toLogicalH   = 0;
+
+    /** 0..1 through the current glide. */
+    float glide = 1.0f;
 
     /** How far the user has scaled the window, as a multiple of the current
         page's logical size. Set ONLY by a corner-drag (see resized()); every

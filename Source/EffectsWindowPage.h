@@ -135,8 +135,18 @@ private:
             detailPage.setBounds (block.reduced (kMeterGap, 0));
         }
 
-        wheelPlate = area.expanded (kPlateBleed, 2);
-        wheel.setBounds (area);
+        // The chain's panel keeps ONE height, whatever the effect beside it
+        // needs (Giuseppe, 2026-08-23). A tall effect made the ring's plate
+        // grow with it, so the same 25 slots sat in a taller and taller box as
+        // you browsed — the chain is the constant thing on this page and it
+        // should look like it. The inspector takes the extra height alone.
+        const int ringH = juce::jmin (area.getHeight(), kRingPlateH);
+
+        auto ring = area.withHeight (ringH)
+                        .withY (area.getY() + (area.getHeight() - ringH) / 2);
+
+        wheelPlate = ring.expanded (kPlateBleed, 2);
+        wheel.setBounds (ring);
     }
 
     /** INPUT / OUTPUT belong over the RING — that is the thing the signal runs
@@ -194,6 +204,7 @@ private:
         {
             inMeter .setLevel (chain.getMeteredInLevel());
             outMeter.setLevel (chain.getMeteredOutLevel());
+            detailPage.updateLiveDisplays (chain.getMeteredDisplayValue());
         }
 
         // Backstop for leg two. The shell reports a settle for every animated
@@ -334,10 +345,18 @@ private:
         open beside it. */
     static constexpr float kRingRadius  = 178.0f;
 
+
     /** The page with nothing selected, and the ceiling once something is. */
     static constexpr int kBareW = 620, kBareH = 450;
     static constexpr int kMaxW  = 1180, kMaxH = 660;
     static constexpr int kPlateBleed  = 6;
+
+    /** The chain panel's fixed height, in logical pixels: what the BARE page
+        leaves for it. Derived from kBareH less SolPage's header, its two edge
+        captions and their insets, so the plate is the same object whether or
+        not an inspector is open beside it. Declared after kBareH — a static
+        member's initialiser can only see what is already declared. */
+    static constexpr int kRingPlateH = kBareH - kHeaderHeight - kCaptionHeight * 2 - 12;
 
     /** At the page's 15 Hz tick: ~0.6 s, comfortably longer than a retraction
         (the shell eases 28% a frame at 60 fps, so it arrives in about a third

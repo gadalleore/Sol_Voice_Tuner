@@ -364,6 +364,10 @@ namespace VocalFx
         reads the feedback value alone. */
     class PhaserEffect final : public SpaceDustEffect<SpaceDustPhaser>
     {
+    public:
+        /** Where the sweep is, for PhaserView to draw the notches at. */
+        float displayValue() const noexcept override { return fx.sweepPosition(); }
+
     protected:
         void apply (const float* v) override
         {

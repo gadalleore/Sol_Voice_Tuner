@@ -298,7 +298,10 @@ namespace VocalFx
                 }
 
                 if (watching)
+                {
                     publishLevel (meterOut, buffer, chs, N);
+                    meterAux.store (fx->displayValue(), std::memory_order_relaxed);
+                }
             }
         }
 
@@ -314,14 +317,21 @@ namespace VocalFx
             {
                 // Don't let the previous slot's tail read as the new one's
                 // signal — a stale meter is worse than an empty one.
-                meterIn .store (0.0f, std::memory_order_relaxed);
-                meterOut.store (0.0f, std::memory_order_relaxed);
+                meterIn .store ( 0.0f, std::memory_order_relaxed);
+                meterOut.store ( 0.0f, std::memory_order_relaxed);
+                meterAux.store (-1.0f, std::memory_order_relaxed);
             }
         }
 
         /** Peak going into and coming out of the metered slot, 0..1-ish. */
         float getMeteredInLevel()  const noexcept { return meterIn .load (std::memory_order_relaxed); }
         float getMeteredOutLevel() const noexcept { return meterOut.load (std::memory_order_relaxed); }
+
+        /** The metered slot's effect-specific display number (VocalEffect::
+            displayValue), or negative if it has none. Same one-slot rule as
+            the meters: the panel shows one effect, so one is all that is
+            published. */
+        float getMeteredDisplayValue() const noexcept { return meterAux.load (std::memory_order_relaxed); }
 
         static EffectType clampType (EffectType t) noexcept
         {
@@ -350,6 +360,7 @@ namespace VocalFx
         }
 
         std::atomic<int>   meteredSlot { -1 };
+        std::atomic<float> meterAux { -1.0f };
         std::atomic<float> meterIn  { 0.0f };
         std::atomic<float> meterOut { 0.0f };
 

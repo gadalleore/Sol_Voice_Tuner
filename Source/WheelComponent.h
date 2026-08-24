@@ -462,41 +462,48 @@ public:
             }
             else
             {
-                // An empty slot is a MOUNTING SOCKET, not a dotted outline: a
-                // recess sunk into the ring with a bayonet's lugs around it, so
-                // it reads as somewhere a part goes rather than as a hole in
-                // the drawing (Giuseppe, 2026-08-23).
-                const float r = slotRingR;
+                // An empty slot is an EMPTY BAY — the exact plate an effect
+                // will occupy, drawn as a recess (Giuseppe, 2026-08-23).
+                //
+                // It was a round socket on the rim, which said "something
+                // mounts here" but not WHAT SHAPE or how big, and the parts you
+                // are dragging are little rectangular plates. Nothing told you
+                // where one would land until it landed. A bay the size and
+                // shape of the part answers that before you let go: you can see
+                // the row of them, and you can see the gap you are aiming at.
+                const auto bay = labelBox (i).reduced (1.0f, 1.5f);
+                const float cut = 5.0f;
+                const auto shape = SolPanel::plateShape (bay, cut);
 
-                // The recess: darker than the band, so it reads as depth.
+                juce::Graphics::ScopedSaveState bayState (g);
+                g.setOpacity (edgeFade);
+
+                // Sunk, not raised: darker than the plate behind it, which is
+                // the whole difference between a hole and a part.
                 g.setColour (juce::Colour (SolLookAndFeel::kBackground)
-                                 .withAlpha ((isTarget ? 0.85f : 0.65f) * edgeFade));
-                g.fillEllipse (pos.x - r, pos.y - r, r * 2.0f, r * 2.0f);
+                                 .withAlpha (isTarget ? 0.9f : 0.55f));
+                g.fillPath (shape);
 
-                // Its rim, and a lit inner lip just inside it.
-                g.setColour (juce::Colour (isTarget ? SolLookAndFeel::kAccentArc
-                                                    : SolLookAndFeel::kOutlineHi)
-                                 .withAlpha ((isTarget ? 1.0f : 0.7f) * edgeFade));
-                g.drawEllipse (pos.x - r, pos.y - r, r * 2.0f, r * 2.0f,
-                               isTarget ? 2.2f : 1.4f);
-
-                g.setColour (juce::Colour (SolLookAndFeel::kOutline).withAlpha ( 0.5f * edgeFade));
-                g.drawEllipse (pos.x - r + 3.0f, pos.y - r + 3.0f,
-                               (r - 3.0f) * 2.0f, (r - 3.0f) * 2.0f, 1.0f);
-
-                // Four lugs on the diagonals — off the axes so they cannot be
-                // mistaken for the rim's own joint marks.
-                g.setColour (juce::Colour (isTarget ? SolLookAndFeel::kAccentArc
-                                                    : SolLookAndFeel::kOutlineHi)
-                                 .withAlpha ((isTarget ? 0.95f : 0.6f) * edgeFade));
-
-                for (int lug = 0; lug < 4; ++lug)
+                // A lit top edge would make it read as raised, so the light
+                // sits along the BOTTOM — the way a recess catches it.
                 {
-                    const float a = juce::MathConstants<float>::pi * (0.25f + 0.5f * (float) lug);
-                    const float ux = std::cos (a), uy = std::sin (a);
-                    g.drawLine (pos.x + ux * (r - 1.0f), pos.y + uy * (r - 1.0f),
-                                pos.x + ux * (r + 3.5f), pos.y + uy * (r + 3.5f),
-                                isTarget ? 2.0f : 1.3f);
+                    juce::Graphics::ScopedSaveState lip (g);
+                    g.reduceClipRegion (bay.withTrimmedTop (bay.getHeight() * 0.5f).toNearestInt());
+                    g.setColour (juce::Colour (SolLookAndFeel::kOutlineHi).withAlpha (0.22f));
+                    g.strokePath (shape, juce::PathStrokeType (1.0f));
+                }
+
+                g.setColour (juce::Colour (isTarget ? SolLookAndFeel::kAccentArc
+                                                    : SolLookAndFeel::kOutline)
+                                 .withAlpha (isTarget ? 1.0f : 0.85f));
+                g.strokePath (shape, juce::PathStrokeType (isTarget ? 1.8f : 1.0f));
+
+                // Two fixings at the ends, the same ones a fitted part covers.
+                for (const float fx : { bay.getX() + 6.0f, bay.getRight() - 6.0f })
+                {
+                    g.setColour (juce::Colour (SolLookAndFeel::kOutlineHi)
+                                     .withAlpha (isTarget ? 0.75f : 0.35f));
+                    g.fillEllipse (fx - 1.6f, bay.getCentreY() - 1.6f, 3.2f, 3.2f);
                 }
             }
         }
@@ -520,11 +527,25 @@ public:
                 const auto plate = header.removeFromTop (kPaletteHeaderH).reduced (2.0f, 2.0f);
                 SolPanel::drawNotice (g, plate);
 
+                // The words get a CLEAR field inside the hatching (Giuseppe,
+                // 2026-08-23). At 9.5pt over the stripes this was the least
+                // legible thing on a panel whose whole job is to tell a
+                // first-time user what to do — black type on a black-and-yellow
+                // barber pole has almost no contrast anywhere. A real warning
+                // label does the same thing: hazard tape around the edge, plain
+                // ground in the middle, and the message printed on the ground.
+                const auto field = plate.reduced (7.0f, 7.0f);
+
+                g.setColour (juce::Colour (SolPanel::kHazard));
+                g.fillRoundedRectangle (field, 2.0f);
+                g.setColour (juce::Colour (SolPanel::kHazardInk).withAlpha (0.55f));
+                g.drawRoundedRectangle (field, 2.0f, 0.8f);
+
                 g.setColour (juce::Colour (SolPanel::kHazardInk));
                 g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface,
-                                                          9.5f, juce::Font::plain)));
+                                                          12.5f, juce::Font::bold)));
                 g.drawFittedText ("PULL INTO RING\nTO ADD EFFECT",
-                                  plate.reduced (5.0f, 6.0f).toNearestInt(),
+                                  field.reduced (3.0f, 1.0f).toNearestInt(),
                                   juce::Justification::centred, 2);
             }
 
@@ -1269,7 +1290,9 @@ private:
     // the list in; below that it scrolls. The header is the "PULL OUT" caption.
     static constexpr float kPaletteMaxRowH  = 36.0f;
     static constexpr float kPaletteMinRowH  = 17.0f;
-    static constexpr float kPaletteHeaderH  = 34.0f;
+    /** Tall enough for two lines of readable type INSIDE the hazard border,
+        rather than two lines squeezed over it. */
+    static constexpr float kPaletteHeaderH  = 48.0f;
 
     /** The "pull to remove" plate, sitting outboard of the rim. */
     static constexpr float kRemoveHintW   = 104.0f;

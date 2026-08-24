@@ -22,6 +22,7 @@
 
 #include "EffectParams.h"
 #include "EqCurve.h"
+#include "PhaserView.h"
 #include "SolLookAndFeel.h"
 #include "SolPage.h"
 #include "SolPanel.h"
@@ -53,6 +54,8 @@ public:
         amountAtt.reset();
         effectName = {};
         isEq = false;
+        isPhaser = false;
+        phaserView.setVisible (false);
         eqCurve.unbind();
         eqCurve.setVisible (false);
         bandHeader.setVisible (false);
@@ -86,14 +89,24 @@ public:
         // busier. A square-ish grid (sqrt) reads well for four controls but
         // sends Trance Gate's sixteen steps six rows deep into a tall narrow
         // window; a panel of controls wants to be a bank, not a column.
+        // Same cell width and the same column rule layoutGrid uses, or the
+        // window gets sized for one grid and the panel draws another.
+        bool hasChoice = false;
+
+        for (const auto& c : controls)
+            if (c.combo != nullptr)
+                hasChoice = true;
+
+        const int cellW   = hasChoice ? kComboCellWidth : kCellWidth;
         const int busiest = juce::jmax (mainCount, filterCount);
-        const int cols = juce::jlimit (2, kMaxCols, (busiest + 1) / 2);
+        const int cols    = gridCols (busiest, cellW, 0);
 
         const int mainRows   = (juce::jmax (1, mainCount) + cols - 1) / cols;
         const int filterRows = filterCount > 0 ? (filterCount + cols - 1) / cols : 0;
 
-        const int contentW = cols * kCellWidth;
+        const int contentW = cols * cellW;
         const int contentH = 18 + 4 + (kAmountSize + kCaptionH) + 6
+                           + (isPhaser ? PhaserView::kHeight + 8 : 0)
                            + mainRows * kMainCellMaxH
                            + (filterRows > 0 ? 8 + kGroupHeaderH + filterRows * kFilterCellH : 0);
 
@@ -131,6 +144,25 @@ public:
         styleCaption (bandHeader, {});
         bandHeader.setJustificationType (juce::Justification::centredLeft);
         addChildComponent (bandHeader);
+
+        // The Phaser's sweep. Same argument as the EQ's curve: three numbers
+        // describing a moving comb filter is not something anyone can hear by
+        // reading it.
+        addChildComponent (phaserView);
+    }
+
+    /** Driven from the page's timer with the chain's published values, so the
+        Phaser's notches move with the audio rather than with a copy of its
+        LFO running up here. Cheap enough to call at UI rate. */
+    void updateLiveDisplays (float displayValue)
+    {
+        if (! isPhaser)
+            return;
+
+        phaserView.setShape (paramValue ("centre", 400.0f),
+                             paramValue ("depth", 0.7f),
+                             paramValue ("stages", 0.0f) < 0.5f ? 4 : 6);
+        phaserView.setSweep (displayValue);
     }
 
     /** The plate, plus the filter module's own recessed panel. Grouping has to
@@ -173,14 +205,23 @@ public:
         // Say when these controls are shared. An effect placed twice in one
         // chain has ONE control set (EffectParams.h), so turning a knob here
         // moves its twin too — which is only a feature if you are told.
-        juce::String where = "Chain position " + juce::String (slotIndex + 1);
+        // The chain position is no longer shown (Giuseppe, 2026-08-23). You
+        // just clicked the slot; where it sits is on the ring right beside
+        // you, and a line of type restating it is a caption on a photograph
+        // of itself.
+        //
+        // The SHARED-controls warning stays and now owns the row alone. That
+        // one is not a restatement — it is the only place you are told that
+        // turning these knobs moves another slot's too.
+        juce::String where;
 
         if (! linkedSlots.isEmpty())
-            where += "   ·   controls shared with "
-                   + juce::String (linkedSlots.size() == 1 ? "position " : "positions ")
-                   + linkedSlots.joinIntoString (", ");
+            where = "controls shared with "
+                  + juce::String (linkedSlots.size() == 1 ? "position " : "positions ")
+                  + linkedSlots.joinIntoString (", ");
 
         slotLabel.setText (where, juce::dontSendNotification);
+        slotLabel.setVisible (where.isNotEmpty());
 
         amountAtt.reset();
         amountAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
@@ -188,9 +229,12 @@ public:
 
         buildControls (type, paramIdFor);
 
-        isEq = (type == VocalFx::EffectType::FinalEQ);
+        isEq     = (type == VocalFx::EffectType::FinalEQ);
+        isPhaser = (type == VocalFx::EffectType::Phaser);
+
         eqCurve.setVisible (isEq);
         bandHeader.setVisible (isEq);
+        phaserView.setVisible (isPhaser);
 
         if (isEq)
         {
@@ -229,10 +273,38 @@ private:
         return false;
     }
 
+    /** A bound control's current value by its table id, for the bespoke
+        displays. They need the same numbers the knobs are showing, and the
+        knobs are the only place those live once rebind() has run. */
+    float paramValue (const char* id, float fallback) const
+    {
+        for (const auto& c : controls)
+            if (c.id != nullptr && std::strcmp (c.id, id) == 0)
+            {
+                if (c.knob  != nullptr) return (float) c.knob->getValue();
+                if (c.combo != nullptr) return (float) (c.combo->getSelectedItemIndex());
+            }
+
+        return fallback;
+    }
+
     /** Which EQ band a control belongs to, or -1. The ids are "b1Freq",
         "b2Gain" and so on (EffectParams.h's VOCALFX_EQ_BAND), so the band is
         the digit — the table is the only place the numbering is declared and
         this reads it back rather than restating it. */
+    /** A control whose display name is just a number — a pattern step. */
+    static bool isStepName (const char* name) noexcept
+    {
+        if (name == nullptr || *name == 0)
+            return false;
+
+        for (const char* p = name; *p != 0; ++p)
+            if (! juce::CharacterFunctions::isDigit (*p))
+                return false;
+
+        return true;
+    }
+
     static int eqBandOf (const char* id) noexcept
     {
         if (id == nullptr || id[0] != 'b' || id[1] < '1' || id[1] > '5')
@@ -248,6 +320,7 @@ private:
         bool        isFilter = false;   //!< belongs to the FILTER module
         bool        isEnable = false;   //!< the effect's On — lives in the header, not the grid
         int         eqBand   = -1;      //!< 0-4 for an EQ band control, else -1
+        bool        isStep   = false;   //!< a pattern step: the NUMBER is the button
 
         std::unique_ptr<juce::Slider>      knob;
         std::unique_ptr<juce::ToggleButton> toggle;
@@ -304,6 +377,20 @@ private:
                 case VocalFx::ParamKind::Toggle:
                     c.toggle = std::make_unique<juce::ToggleButton>();
                     styleToggle (*c.toggle);
+
+                    // A step in a pattern is its NUMBER, lit or not — the
+                    // MonoToggle shape (Giuseppe, 2026-08-23). Sixteen switches
+                    // each with a digit captioned underneath is sixteen of the
+                    // wrong control: a gate pattern is read across, at a
+                    // glance, as which beats are on, and for that the number
+                    // has to BE the button. Every other toggle stays a switch,
+                    // because "Ping-Pong" is a setting and not a beat.
+                    if (isStepName (p.name))
+                    {
+                        c.isStep = true;
+                        c.toggle->setButtonText (p.name);
+                    }
+
                     addAndMakeVisible (*c.toggle);
                     c.toggleAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
                         apvts, paramId, *c.toggle);
@@ -339,16 +426,22 @@ private:
                     break;
             }
 
-            c.caption = std::make_unique<juce::Label>();
+            // A step carries its own name ON the button, so a caption under it
+            // would print the number twice.
+            if (! c.isStep)
+            {
+                c.caption = std::make_unique<juce::Label>();
 
-            // Only one band's knobs are on screen at a time, and which band it
-            // is is said once in the header above them — so "B3 Freq" repeats
-            // itself four times over. Drop the prefix the table carries for
-            // the parameter list's benefit and leave the control's own name.
-            styleCaption (*c.caption, c.eqBand >= 0
-                                        ? juce::String (p.name).fromFirstOccurrenceOf (" ", false, false)
-                                        : juce::String (p.name));
-            addAndMakeVisible (*c.caption);
+                // Only one band's knobs are on screen at a time, and which band
+                // it is is said once in the header above them — so "B3 Freq"
+                // repeats itself four times over. Drop the prefix the table
+                // carries for the parameter list's benefit and leave the
+                // control's own name.
+                styleCaption (*c.caption, c.eqBand >= 0
+                                            ? juce::String (p.name).fromFirstOccurrenceOf (" ", false, false)
+                                            : juce::String (p.name));
+                addAndMakeVisible (*c.caption);
+            }
 
             controls.push_back (std::move (c));
         }
@@ -386,6 +479,14 @@ private:
             return;
         }
 
+        // The sweep strip sits directly under Amount and above the controls
+        // that shape it — you read what it is doing, then reach for the knob.
+        if (isPhaser)
+        {
+            phaserView.setBounds (area.removeFromTop (PhaserView::kHeight));
+            area.removeFromTop (8);
+        }
+
         // Two modules, not one flat grid: what the effect IS, then how its wet
         // path is filtered. A single uniform grid gave every control the same
         // weight, so a Reverb's Type and its HP resonance looked equally
@@ -406,14 +507,26 @@ private:
 
         if (! filter.empty())
         {
-            const int cols = juce::jmax (1, area.getWidth() / kCellWidth);
+            const int cols = gridCols ((int) filter.size(), cellWidthFor (filter), area.getWidth());
             const int rows = ((int) filter.size() + cols - 1) / cols;
-            auto block = area.removeFromBottom (rows * kFilterCellH + kGroupHeaderH);
+
+            // Never take more than half the panel: the effect's OWN controls
+            // are what the page is for, and a sub-module that starves them is
+            // the tail wagging the dog.
+            auto block = area.removeFromBottom (
+                juce::jmin (rows * kFilterCellH + kGroupHeaderH,
+                            juce::jmax (kGroupHeaderH + 40, area.getHeight() / 2)));
 
             filterHeader.setBounds (block.removeFromTop (kGroupHeaderH)
                                          .withTrimmedLeft (2));
             filterBlock = block;
-            layoutGrid (filter, block, kFilterCellH, kFilterKnob);
+
+            // The block's OWN height per row, not the nominal one — it may have
+            // been clamped above, and a cell height larger than the rectangle
+            // it is laid into is what made the EQ's band row lay out nothing.
+            layoutGrid (filter, block,
+                        juce::jmax (36, juce::jmin (kFilterCellH, block.getHeight() / juce::jmax (1, rows))),
+                        kFilterKnob);
 
             area.removeFromBottom (8);
         }
@@ -426,11 +539,30 @@ private:
         // height stretched to fill it rather than leaving a gap at the foot.
         if (! main.empty())
         {
-            const int cols = juce::jmax (1, area.getWidth() / kCellWidth);
+            const int cols = gridCols ((int) main.size(), cellWidthFor (main), area.getWidth());
             const int rows = juce::jmax (1, ((int) main.size() + cols - 1) / cols);
-            const int cellH = juce::jlimit (kFilterCellH, kMainCellMaxH, area.getHeight() / rows);
 
-            layoutGrid (main, area, cellH, juce::jmin (kMainKnob, cellH - kCaptionH - 18));
+            // Squeeze to fit, never overflow. This used to take kFilterCellH as
+            // its floor, so raising the filter block's cell height instantly
+            // pushed the Phaser's second row past the bottom of the panel and
+            // layoutGrid dropped it — Stages, Mix, Center, Width and Vintage
+            // vanished from a page that still looked finished (Giuseppe,
+            // 2026-08-23). A control that exists must be reachable; a row that
+            // does not fit is a smaller row, not a missing one.
+            const int cellH = juce::jmax (kMainCellMinH,
+                                          juce::jmin (kMainCellMaxH, area.getHeight() / rows));
+
+            // Centred in what is left, rather than pinned to the top of it.
+            // The window's height has a floor — the ring beside it is 450 tall
+            // whatever the effect needs — so a short panel like Delay's had its
+            // controls at the top and a hand's breadth of empty plate under
+            // them before the FILTER block (Giuseppe, 2026-08-23).
+            const int used = rows * cellH;
+
+            layoutGrid (main,
+                        area.withHeight (juce::jmin (area.getHeight(), used))
+                            .withY (area.getY() + juce::jmax (0, (area.getHeight() - used) / 2)),
+                        cellH, juce::jmin (kMainKnob, cellH - kCaptionH - 18));
         }
     }
 
@@ -521,11 +653,51 @@ private:
 
     /** Lays a set of controls into `area` on a fixed-width grid. `knobSize`
         keeps the dials round instead of stretching them to the cell. */
+    /** A dial needs a circle's worth of width; a dropdown needs room for its
+        longest entry plus a chevron. kCellWidth is sized for the dial, and at
+        78px the Phaser's "4 (Phase 90)" ran straight through its own arrow —
+        as did Compress's "1176 FET" and Soft Clip's "Smooth" (Giuseppe,
+        2026-08-23).
+
+        Widening the whole block rather than the one control keeps the grid
+        uniform, which is the thing that makes a panel read as a panel. An
+        effect with no dropdown is unaffected. */
+    static int cellWidthFor (const std::vector<Control*>& list)
+    {
+        for (const auto* c : list)
+            if (c->combo != nullptr)
+                return kComboCellWidth;
+
+        return kCellWidth;
+    }
+
+    /** THE column count — the one rule both the layout and the window's
+        requested size go through (Giuseppe, 2026-08-23).
+
+        These were computed two different ways: preferredLogicalSize() from the
+        control count, layoutGrid() from whatever width it was handed. When they
+        disagreed the window was sized for one grid and the panel drew another,
+        so the Phaser asked for two rows, got three, and put Vintage outside the
+        plate. Deriving both from here makes disagreement impossible.
+
+        `availableWidth` clamps the answer to what will physically fit; pass 0
+        to ask what the grid WANTS, which is what a size request is. */
+    static int gridCols (int count, int cellW, int availableWidth)
+    {
+        const int ceiling = cellW >= kComboCellWidth ? kMaxComboCols : kMaxCols;
+        const int wanted  = juce::jlimit (2, ceiling, (count + 1) / 2);
+
+        if (availableWidth <= 0)
+            return wanted;
+
+        return juce::jmax (1, juce::jmin (wanted, availableWidth / cellW));
+    }
+
     void layoutGrid (const std::vector<Control*>& list,
                      juce::Rectangle<int> area, int cellH, int knobSize)
     {
-        const int cellW = kCellWidth;
-        const int cols  = juce::jmax (1, area.getWidth() / cellW);
+        const int cellW = cellWidthFor (list);
+        const int cols  = gridCols ((int) list.size(), cellW, area.getWidth());
 
         // Centre the row: a trailing gap on the right of a half-full row is
         // what makes a panel look unfinished rather than composed.
@@ -541,19 +713,38 @@ private:
                                        area.getY() + row * cellH,
                                        cellW, cellH);
 
-            if (cell.getBottom() > area.getBottom() + 2)
-                break;
 
             auto& c = *list[i];
-            c.caption->setBounds (cell.removeFromBottom (kCaptionH));
+
+            // No silent truncation. The old guard here dropped any cell that
+            // would overflow, which turns a layout that is slightly too tight
+            // into controls that simply do not exist — with nothing on screen
+            // to say so. The caller sizes cellH to fit; if it still spills,
+            // spilling visibly is the lesser failure (Giuseppe, 2026-08-23).
+            if (c.caption != nullptr)
+                c.caption->setBounds (cell.removeFromBottom (kCaptionH));
 
             auto w = cell.reduced (4, 2);
 
+            // A step is the whole cell: it has no caption to leave room for,
+            // and a pattern is read by the SHAPE of the lit blocks across the
+            // row, which wants them big and touching.
+            if (c.isStep && c.toggle != nullptr)
+            {
+                c.toggle->setBounds (w.reduced (2, juce::jmax (2, w.getHeight() / 5)));
+                continue;
+            }
+
             if (c.knob != nullptr)
-                c.knob->setBounds (w.withSizeKeepingCentre (juce::jmin (knobSize, w.getWidth()),
+                // FULL cell width, knobSize tall. A rotary sizes its dial from
+                // the smaller side, so the height alone sets the diameter and
+                // the extra width goes to the value box underneath — which is
+                // what it needs: squeezed to the dial's own diameter it had
+                // 45px for "1.00 Hz" and printed "1.0.." (Giuseppe, 2026-08-23).
+                c.knob->setBounds (w.withSizeKeepingCentre (w.getWidth(),
                                                             juce::jmin (knobSize, w.getHeight())));
             else if (c.toggle != nullptr)
-                c.toggle->setBounds (w.withSizeKeepingCentre (24, 24));
+                c.toggle->setBounds (w.withSizeKeepingCentre (46, 24));
             else if (c.combo != nullptr)
                 c.combo->setBounds (w.withSizeKeepingCentre (w.getWidth(), 24));
         }
@@ -596,13 +787,27 @@ private:
     static constexpr int kCaptionH   = 14;
     static constexpr int kCellWidth  = 78;
 
+    /** Cell width for a block containing a dropdown — see cellWidthFor(). */
+    static constexpr int kComboCellWidth = 112;
+
     /** The effect's own controls get the bigger dial — they are what the page
         is FOR. The filter block is a sub-module and reads as one by being
         drawn smaller, not by being pushed into a corner. */
     static constexpr int kMainCellMaxH = 88;
+
+    /** Floor for the main grid's cell height, kept SEPARATE from the filter
+        block's. They were the same constant, so changing one silently
+        rearranged the other. */
+    static constexpr int kMainCellMinH = 58;
     static constexpr int kMainKnob     = 54;
-    static constexpr int kFilterCellH  = 62;
-    static constexpr int kFilterKnob   = 36;
+
+    /** The filter block's dials were HALF the diameter of the ones above them
+        (Giuseppe, 2026-08-23). A slider carries a 15px text box under it, so a
+        36px knob in a 62px cell left a 21px arc against the main row's 39 —
+        which does not read as "sub-module", it reads as broken. Sized so the
+        sub-module is visibly smaller and still usable. */
+    static constexpr int kFilterCellH  = 78;
+    static constexpr int kFilterKnob   = 48;
     static constexpr int kGroupHeaderH = 16;
 
     /** Width the plate's volume / mono / meter / mark column needs — matches
@@ -610,6 +815,12 @@ private:
     static constexpr int kRightColumn  = 110;   // unused by the inspector
 
     static constexpr int kMaxCols      = 6;
+
+    /** Fewer columns when the cells are dropdown-width, or the panel asks for
+        a width the effects page will not give it — it caps the inspector at
+        the window's width less the ring's minimum — and the row that does not
+        fit ends up outside the plate. */
+    static constexpr int kMaxComboCols = 3;
 
     /** Everything between the window edge and layoutContent's rectangle: the
         plate's padding and chamfer allowance, SolPage's edge inset, its header
@@ -647,8 +858,10 @@ private:
     juce::Label  amountLabel, slotLabel, filterHeader, bandHeader;
 
     /** The Parametric EQ's curve, and whether the bound effect IS the EQ. */
-    EqCurve eqCurve;
-    bool    isEq = false;
+    EqCurve    eqCurve;
+    PhaserView phaserView;
+    bool       isEq     = false;
+    bool       isPhaser = false;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> amountAtt;
 
     /** Where the filter module sits, so paint() can put its plate behind it. */

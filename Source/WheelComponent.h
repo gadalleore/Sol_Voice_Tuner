@@ -543,10 +543,15 @@ public:
 
                 g.setColour (juce::Colour (SolPanel::kHazardInk));
                 g.setFont (juce::Font (juce::FontOptions (SolLookAndFeel::kBrandTypeface,
-                                                          12.5f, juce::Font::bold)));
-                g.drawFittedText ("PULL INTO RING\nTO ADD EFFECT",
+                                                          11.5f, juce::Font::bold)));
+
+                // THREE lines, not two. Two needed a palette wide enough to
+                // crowd the ring and cover the empty bays; three says the same
+                // sentence at nearly the same size in the column the list
+                // already has.
+                g.drawFittedText ("PULL INTO\nRING TO\nADD EFFECT",
                                   field.reduced (3.0f, 1.0f).toNearestInt(),
-                                  juce::Justification::centred, 2);
+                                  juce::Justification::centred, 3);
             }
 
             // Say so when the list runs past the box, at both ends.
@@ -821,10 +826,14 @@ private:
         const float h    = juce::jmax (1.0f, (float) getHeight());
         const float zone = h * kEdgeZoneFrac;
 
+        // Hovering the BOTTOM drives the ring upward, the top drives it down
+        // (Giuseppe, 2026-08-23) — you reach toward where you want the chain to
+        // come FROM, the way you would push a physical wheel round. The signs
+        // were the other way about, which read as the wheel resisting you.
         if (pos.y < zone)
-            return -(1.0f - pos.y / zone);
+            return (1.0f - pos.y / zone);
         if (pos.y > h - zone)
-            return (pos.y - (h - zone)) / zone;
+            return -(pos.y - (h - zone)) / zone;
         return 0.0f;
     }
 
@@ -956,7 +965,12 @@ private:
         centre = { b.getX(), b.getCentreY() };   // flush to the edge
 
         const float hubR = hubRadius();
-        const float palW = juce::jlimit (72.0f, 150.0f, hubR - 14.0f);
+        // Wide enough for the notice to say its whole sentence at a readable
+        // size (Giuseppe, 2026-08-23). At 72 the minimum, "PULL INTO RING TO
+        // ADD EFFECT" got fitted down to "RING / TO ADD" — a label cropped
+        // until it stops being a sentence is worse than no label. The effect
+        // names get the room too.
+        const float palW = juce::jlimit (104.0f, 150.0f, hubR - 14.0f);
 
         // Tall enough for the whole list where the panel allows it (63C-8 took
         // the effects palette from two entries to twelve, and a list you have
@@ -1292,7 +1306,7 @@ private:
     static constexpr float kPaletteMinRowH  = 17.0f;
     /** Tall enough for two lines of readable type INSIDE the hazard border,
         rather than two lines squeezed over it. */
-    static constexpr float kPaletteHeaderH  = 48.0f;
+    static constexpr float kPaletteHeaderH  = 62.0f;
 
     /** The "pull to remove" plate, sitting outboard of the rim. */
     static constexpr float kRemoveHintW   = 104.0f;
